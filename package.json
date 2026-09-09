@@ -1,14 +1,14 @@
 {
-  "name": "echo-coding-semantic-governance",
-  "version": "0.1.0+codex.20260909125405",
+  "name": "echo-semantic",
+  "version": "0.1.0+codex.20260909133058",
   "private": true,
-  "description": "面向 Codex、Cursor 和 Claude Code 的项目无关语义治理插件",
+  "description": "Coding Agent 语义预检与持续质量门禁",
   "type": "module",
   "engines": {
     "node": ">=20"
   },
   "bin": {
-    "echo-semantic-governance": "./bin/install.mjs"
+    "echo-semantic": "./bin/install.mjs"
   },
   "files": [
     ".agents/",

@@ -1,6 +1,6 @@
-# Echo Coding Semantic Governance
+# Echo Semantic
 
-`echo-coding-semantic-governance` 是面向 Coding Agent 的项目无关语义治理插件。它把生成前预检、语义基线、
+`echo-semantic` 是面向 Coding Agent 的项目无关语义治理插件。它把生成前预检、语义基线、
 增量影响分析、定向审查和确定性验证组合成一条可按风险升级的开发链路，并适配 Codex、Cursor 和 Claude Code。
 
 插件不替代 formatter、Lint、类型检查、单元测试、契约测试或集成测试。Skill 负责需要判断的工作，Hook 负责
@@ -20,16 +20,16 @@
 
 ## 能力
 
-| 入口 | 用途 |
-| --- | --- |
-| `semantic-preflight` | 写代码前完成复用、边界、允许路径、设计权威和验证矩阵预检 |
-| `semantic-status` | 汇总基线、路由、预检、开放 Finding、失效 Audit 和下一步 Frontier |
-| `semantic-discover` | 建立或修复项目自己的 `semantic/` 基线 |
-| `semantic-diff` | 将代码差异映射到能力、规则、失效审查和验证范围 |
-| `semantic-audit` | 对高风险边界执行有界、可反证的只读审查 |
-| `semantic-decide` | 只处理无法由证据决定的产品预期和风险接受 |
-| `semantic-verify` | 校验语义材料、变更依据和工程验证证据 |
-| `semantic-contract` | 为其它语义 Skill 提供唯一对象合同和确定性校验器 |
+| 入口                 | 用途                                                             |
+| -------------------- | ---------------------------------------------------------------- |
+| `semantic-preflight` | 写代码前完成复用、边界、允许路径、设计权威和验证矩阵预检         |
+| `semantic-status`    | 汇总基线、路由、预检、开放 Finding、失效 Audit 和下一步 Frontier |
+| `semantic-discover`  | 建立或修复项目自己的 `semantic/` 基线                            |
+| `semantic-diff`      | 将代码差异映射到能力、规则、失效审查和验证范围                   |
+| `semantic-audit`     | 对高风险边界执行有界、可反证的只读审查                           |
+| `semantic-decide`    | 只处理无法由证据决定的产品预期和风险接受                         |
+| `semantic-verify`    | 校验语义材料、变更依据和工程验证证据                             |
+| `semantic-contract`  | 为其它语义 Skill 提供唯一对象合同和确定性校验器                  |
 
 三个只读 Agent 分别负责边界发现、能力闭合复核和风险审查。宿主不能发现专用 Agent 时，Skill 会降级为宿主已有的
 只读探索或审查能力，不改变长期材料的唯一写入者。
@@ -53,7 +53,7 @@ node bin/install.mjs install claude-code
 ```
 
 安装器优先调用宿主原生插件命令；Cursor 使用其本地插件目录。安装时会覆盖本插件对应的宿主安装内容，结果记录在
-`~/.echo-coding-semantic-governance/install-state.json`，卸载只撤回该状态中由本插件拥有的路径和注册项：
+`~/.echo-semantic/install-state.json`，卸载只撤回该状态中由本插件拥有的路径和注册项：
 
 ```bash
 node bin/install.mjs uninstall all

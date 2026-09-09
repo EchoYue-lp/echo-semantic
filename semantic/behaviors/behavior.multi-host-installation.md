@@ -8,12 +8,12 @@ risk: medium
 primary_focus: time_lifecycle
 focus: [permission_external, data_durability]
 boundary: boundary.host-distribution
-observed_at: source:06fba8cfe0fd5119da378b2fed47d276171530e4fcfa3caf1248f3f247fb79a5
+observed_at: source:82db29a7157684b79a0645b30c9bf22b97cc8c9d1749b29c6d5b7a2c29915711
 code_refs:
   - bin/install.mjs#function main
-  - .codex-plugin/plugin.json#echo-coding-semantic-governance
-  - .cursor-plugin/plugin.json#echo-coding-semantic-governance
-  - .claude-plugin/plugin.json#echo-coding-semantic-governance
+  - .codex-plugin/plugin.json#echo-semantic
+  - .cursor-plugin/plugin.json#echo-semantic
+  - .claude-plugin/plugin.json#echo-semantic
 rule_refs: [rule.single-semantic-authority]
 evidence_refs: [evidence.host-installation]
 finding_refs: []
@@ -32,6 +32,7 @@ Codex 与 Claude Code 使用原生 marketplace；Cursor 使用指向当前克隆
 ## 期望行为
 
 重复安装幂等；跨克隆来源变化直接覆盖本插件对应宿主内容，不撤回其它宿主；`all` 先检测宿主，单宿主缺失返回 `manual_action`。
+安装 `echo-semantic` 时清理旧 ID `echo-coding-semantic-governance` 的宿主注册和本地投影，避免两个身份并存。
 
 ## 触发、结果与副作用
 

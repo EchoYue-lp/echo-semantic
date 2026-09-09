@@ -19,7 +19,7 @@ from typing import Any
 
 import yaml
 
-PLUGIN_ID = "echo-coding-semantic-governance"
+PLUGIN_ID = "echo-semantic"
 ROUTES = {"bootstrap", "fast", "standard", "strict", "idle"}
 KINDS = {"bugfix", "feature", "refactor", "contract", "style"}
 RISKS = {"low", "medium", "high"}

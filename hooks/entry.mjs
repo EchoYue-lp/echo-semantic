@@ -18,7 +18,7 @@ const verifier = resolve(
   pluginRoot,
   "skills/semantic-contract/scripts/verify_semantic.py",
 );
-const pluginId = "echo-coding-semantic-governance";
+const pluginId = "echo-semantic";
 
 function readInput() {
   try {
@@ -131,7 +131,7 @@ function emit(value = {}) {
 
 function sessionContext(host, route, continuation) {
   const text =
-    "已启用 Echo Coding Semantic Governance。修改代码前调用 semantic-preflight；" +
+    "已启用 Echo Semantic。修改代码前调用 semantic-preflight；" +
     "已有 semantic/ 时在首个差异后调用 semantic-diff，完成前调用 semantic-verify。" +
     "Skill 不替代 formatter、Lint、类型、测试、契约和集成门禁。" +
     (route

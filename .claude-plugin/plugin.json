@@ -1,7 +1,7 @@
 {
-  "name": "echo-coding-semantic-governance",
-  "version": "0.1.0+codex.20260909125405",
-  "description": "Coding Agent 语义预检、增量审查和确定性质量门禁",
+  "name": "echo-semantic",
+  "version": "0.1.0+codex.20260909133058",
+  "description": "Coding Agent 语义预检与持续质量门禁",
   "author": {
     "name": "Echo"
   },

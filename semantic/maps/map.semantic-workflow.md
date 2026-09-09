@@ -4,7 +4,7 @@ id: map.semantic-workflow
 kind: capability_map
 title: 语义工作流与只读复核
 risk: high
-observed_at: source:06fba8cfe0fd5119da378b2fed47d276171530e4fcfa3caf1248f3f247fb79a5
+observed_at: source:82db29a7157684b79a0645b30c9bf22b97cc8c9d1749b29c6d5b7a2c29915711
 boundary_refs: [boundary.semantic-workflow]
 behavior_refs: [behavior.preflight-before-write]
 rule_refs: [rule.single-semantic-authority]

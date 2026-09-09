@@ -4,7 +4,7 @@ id: discovery.initial-baseline
 kind: discovery
 source_snapshot:
   base_revision: efd7c18252b749d0d1b399bfbf449bf081e69e8c
-  content_digest: 06fba8cfe0fd5119da378b2fed47d276171530e4fcfa3caf1248f3f247fb79a5
+  content_digest: 82db29a7157684b79a0645b30c9bf22b97cc8c9d1749b29c6d5b7a2c29915711
 scope: 插件工作流、生命周期门禁和三宿主分发
 inspected_paths: [skills, agents, hooks, scripts, bin, action.yml, .codex-plugin, .cursor-plugin, .claude-plugin]
 candidate_refs: [map.semantic-workflow, map.lifecycle-enforcement, map.host-distribution]

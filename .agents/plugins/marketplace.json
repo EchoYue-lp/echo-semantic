@@ -1,11 +1,11 @@
 {
-  "name": "echo-coding-semantic-governance",
+  "name": "echo-semantic",
   "interface": {
-    "displayName": "Echo Coding Semantic Governance"
+    "displayName": "Echo Semantic"
   },
   "plugins": [
     {
-      "name": "echo-coding-semantic-governance",
+      "name": "echo-semantic",
       "source": {
         "source": "local",
         "path": "./"

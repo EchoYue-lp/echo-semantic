@@ -7,7 +7,7 @@ expectation: inferred
 risk: high
 primary_focus: state_authority
 focus: [contract_evidence]
-observed_at: source:06fba8cfe0fd5119da378b2fed47d276171530e4fcfa3caf1248f3f247fb79a5
+observed_at: source:82db29a7157684b79a0645b30c9bf22b97cc8c9d1749b29c6d5b7a2c29915711
 behavior_refs: [behavior.preflight-before-write, behavior.multi-host-installation]
 code_refs:
   - docs/adr/0001-multi-host-layered-enforcement.md#决策

@@ -1,6 +1,6 @@
 # 语义材料合同
 
-- 合同标识：`echo-coding-semantic-governance`
+- 合同标识：`echo-semantic`
 - 合同版本：`1`
 - 载体：带 YAML 前置元数据的 Markdown
 

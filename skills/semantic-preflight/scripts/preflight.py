@@ -16,7 +16,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 from governance_contract import AuthorityError, validate_design_authority
 
-PLUGIN_ID = "echo-coding-semantic-governance"
+PLUGIN_ID = "echo-semantic"
 SCHEMA_VERSION = 1
 KINDS = ("bugfix", "feature", "refactor", "contract", "style")
 RISKS = ("low", "medium", "high")

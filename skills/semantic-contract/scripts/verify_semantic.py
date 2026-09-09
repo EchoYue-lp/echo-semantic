@@ -27,7 +27,7 @@ sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 from governance_contract import AuthorityError, validate_design_authority
 
 SCHEMA_VERSION = 1
-PLUGIN_ID = "echo-coding-semantic-governance"
+PLUGIN_ID = "echo-semantic"
 KIND_BY_DIRECTORY = {
     "maps": "capability_map",
     "behaviors": "behavior",

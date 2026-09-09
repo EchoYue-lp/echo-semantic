@@ -94,12 +94,7 @@ test("semantic-status 输出基线、路由和 Frontier", () => {
 
   const routePath = resolve(
     repository,
-    git(
-      repository,
-      "rev-parse",
-      "--git-path",
-      "echo-coding-semantic-governance/route.json",
-    ),
+    git(repository, "rev-parse", "--git-path", "echo-semantic/route.json"),
   );
   mkdirSync(resolve(routePath, ".."), { recursive: true });
   writeFileSync(routePath, JSON.stringify({ route: "strict" }), "utf8");
@@ -124,7 +119,7 @@ test("semantic-status 输出基线、路由和 Frontier", () => {
       repository,
       "rev-parse",
       "--git-path",
-      "echo-coding-semantic-governance/continuation.json",
+      "echo-semantic/continuation.json",
     ),
   );
   const malformedContinuation = JSON.parse(

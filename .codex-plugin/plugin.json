@@ -1,14 +1,14 @@
 {
-  "name": "echo-coding-semantic-governance",
-  "version": "0.1.0+codex.20260909125405",
-  "description": "在编码前建立复用与边界合同，并在编码后执行语义差异、定向审查和确定性验证。",
+  "name": "echo-semantic",
+  "version": "0.1.0+codex.20260909133058",
+  "description": "Coding Agent 语义预检与持续质量门禁",
   "author": {
     "name": "Echo"
   },
   "repository": "https://github.com/EchoYue-lp/echo-coding-semantic-governance",
   "skills": "./skills/",
   "interface": {
-    "displayName": "Echo Coding Semantic Governance",
+    "displayName": "Echo Semantic",
     "shortDescription": "Coding Agent 语义预检与持续质量门禁",
     "longDescription": "为代码生成提供复用预检、语义基线、影响分析、定向审查和确定性合并证据。",
     "developerName": "Echo",

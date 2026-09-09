@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { loadCapabilities } from "../runtime/capabilities/load.mjs";
 
 const root = resolve(import.meta.dirname, "..");
-const expectedId = "echo-coding-semantic-governance";
+const expectedId = "echo-semantic";
 const expectedSkills = new Set([
   "semantic-preflight",
   "semantic-status",

@@ -1,4 +1,4 @@
-name: Echo Coding Semantic Governance
+name: Echo Semantic
 description: 校验语义基线、源码引用、路径分类和高风险变更依据
 inputs:
   root:

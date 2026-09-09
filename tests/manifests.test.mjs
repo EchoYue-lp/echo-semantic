@@ -11,6 +11,7 @@ function readJson(path) {
 
 test("三个宿主清单共享插件名称和版本", () => {
   const packageJson = readJson("package.json");
+  assert.equal(packageJson.name, "echo-semantic");
   for (const path of [
     ".codex-plugin/plugin.json",
     ".cursor-plugin/plugin.json",
@@ -19,7 +20,20 @@ test("三个宿主清单共享插件名称和版本", () => {
     const manifest = readJson(path);
     assert.equal(manifest.name, packageJson.name);
     assert.equal(manifest.version, packageJson.version);
+    assert.equal(manifest.description, "Coding Agent 语义预检与持续质量门禁");
   }
+  assert.equal(
+    readJson(".codex-plugin/plugin.json").interface.displayName,
+    "Echo Semantic",
+  );
+  assert.equal(
+    readJson(".cursor-plugin/plugin.json").displayName,
+    "Echo Semantic",
+  );
+  assert.equal(
+    readJson(".agents/plugins/marketplace.json").interface.displayName,
+    "Echo Semantic",
+  );
 });
 
 test("三个宿主使用各自 Hook 事件命名", () => {

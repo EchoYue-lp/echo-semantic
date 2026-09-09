@@ -39,12 +39,7 @@ test("PreCompact 保存继续包，resume 只恢复仍可信的任务", () => {
   const head = git(repository, "rev-parse", "HEAD");
   const statePath = resolve(
     repository,
-    git(
-      repository,
-      "rev-parse",
-      "--git-path",
-      "echo-coding-semantic-governance/preflight.json",
-    ),
+    git(repository, "rev-parse", "--git-path", "echo-semantic/preflight.json"),
   );
   mkdirSync(resolve(statePath, ".."), { recursive: true });
   writeFileSync(
@@ -75,7 +70,7 @@ test("PreCompact 保存继续包，resume 只恢复仍可信的任务", () => {
       repository,
       "rev-parse",
       "--git-path",
-      "echo-coding-semantic-governance/continuation.json",
+      "echo-semantic/continuation.json",
     ),
   );
   assert.equal(existsSync(continuationPath), true);

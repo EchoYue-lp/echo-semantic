@@ -61,7 +61,7 @@ test("已采用语义基线的项目阻断预检范围外编辑", () => {
     repository,
     "rev-parse",
     "--git-path",
-    "echo-coding-semantic-governance/preflight.json",
+    "echo-semantic/preflight.json",
   );
   const state = resolve(repository, gitPath);
   mkdirSync(resolve(state, ".."), { recursive: true });
@@ -114,7 +114,7 @@ test("失败 Stop 不被去重且保留预检供连续重试", () => {
     repository,
     "rev-parse",
     "--git-path",
-    "echo-coding-semantic-governance/preflight.json",
+    "echo-semantic/preflight.json",
   );
   const state = resolve(repository, gitPath);
   mkdirSync(resolve(state, ".."), { recursive: true });
@@ -149,7 +149,7 @@ test("明确的新会话清除上一任务的预检状态", () => {
     repository,
     "rev-parse",
     "--git-path",
-    "echo-coding-semantic-governance/preflight.json",
+    "echo-semantic/preflight.json",
   );
   const state = resolve(repository, gitPath);
   mkdirSync(resolve(state, ".."), { recursive: true });
@@ -172,7 +172,7 @@ test("缺少宿主 source 时保守保留上一任务的预检状态", () => {
     repository,
     "rev-parse",
     "--git-path",
-    "echo-coding-semantic-governance/preflight.json",
+    "echo-semantic/preflight.json",
   );
   const state = resolve(repository, gitPath);
   mkdirSync(resolve(state, ".."), { recursive: true });
@@ -193,7 +193,7 @@ test("resume 和 compact 不消费当前任务的预检状态", () => {
     repository,
     "rev-parse",
     "--git-path",
-    "echo-coding-semantic-governance/preflight.json",
+    "echo-semantic/preflight.json",
   );
   const state = resolve(repository, gitPath);
   mkdirSync(resolve(state, ".."), { recursive: true });

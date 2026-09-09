@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { loadCapabilities } from "./capabilities/load.mjs";
 import { probeHost } from "./capabilities/probe.mjs";
 
-const pluginId = "echo-coding-semantic-governance";
+const pluginId = "echo-semantic";
 
 function git(root, args) {
   const result = spawnSync("git", ["-C", root, ...args], {
