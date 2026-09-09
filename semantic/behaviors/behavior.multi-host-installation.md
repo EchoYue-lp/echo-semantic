@@ -8,7 +8,7 @@ risk: medium
 primary_focus: time_lifecycle
 focus: [permission_external, data_durability]
 boundary: boundary.host-distribution
-observed_at: source:7dbea6934585778cf089603e25e10bd33043a781dd00fa3b11c9df5a9f158593
+observed_at: source:677bbc9ea253c6fbb8c000981c28c7c3a94e5a8d4b0f7eb906169c77972c2d5f
 code_refs:
   - bin/install.mjs#function main
   - .codex-plugin/plugin.json#echo-semantic
@@ -27,7 +27,7 @@ finding_refs: []
 
 ## 当前行为
 
-Codex 与 Claude Code 使用原生 marketplace；Cursor 使用指向当前克隆的用户级链接。
+GitHub 仓库、插件 ID 和 marketplace 名统一为 `echo-semantic`；Codex 与 Claude Code 使用原生 marketplace，Cursor 使用指向当前克隆的用户级链接。
 
 ## 期望行为
 
@@ -41,6 +41,7 @@ Codex 与 Claude Code 使用原生 marketplace；Cursor 使用指向当前克隆
 ## 失败、重试与恢复
 
 provider 返回独立状态；安装器不维护事务性迁移，单个宿主失败不隐藏其它宿主结果，完整卸载删除私有状态目录。
+GitHub 仓库重命名会重定向普通 Git 操作，但旧 GitHub Action `uses:` 地址不会重定向，使用方必须显式更新。
 
 ## 证据
 

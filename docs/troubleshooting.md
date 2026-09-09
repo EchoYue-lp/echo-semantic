@@ -17,7 +17,7 @@ npm run verify
 ```bash
 git status --short
 git rev-parse HEAD
-uv run /path/to/echo-coding-semantic-governance/skills/semantic-status/scripts/status.py \
+uv run /path/to/echo-semantic/skills/semantic-status/scripts/status.py \
   --root /absolute/project/path
 ```
 

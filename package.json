@@ -1,6 +1,6 @@
 {
   "name": "echo-semantic",
-  "version": "0.1.0+codex.20260909133058",
+  "version": "0.1.0+codex.20260909155552",
   "private": true,
   "description": "Coding Agent 语义预检与持续质量门禁",
   "type": "module",
@@ -37,7 +37,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/EchoYue-lp/echo-coding-semantic-governance.git"
+    "url": "git+ssh://git@github.com/EchoYue-lp/echo-semantic.git"
   },
   "license": "UNLICENSED"
 }

@@ -7,7 +7,7 @@ expectation: inferred
 risk: medium
 primary_focus: contract_evidence
 focus: [result_side_effect]
-observed_at: source:7dbea6934585778cf089603e25e10bd33043a781dd00fa3b11c9df5a9f158593
+observed_at: source:677bbc9ea253c6fbb8c000981c28c7c3a94e5a8d4b0f7eb906169c77972c2d5f
 behavior_refs: [behavior.post-change-verification]
 code_refs:
   - skills/semantic-verify/SKILL.md#语义验证

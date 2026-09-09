@@ -27,4 +27,6 @@
 
 - 插件展示名由 `Echo Coding Semantic Governance` 缩短为 `Echo Semantic`；
 - 插件 ID 由 `echo-coding-semantic-governance` 缩短为 `echo-semantic`；
+- GitHub 仓库由 `EchoYue-lp/echo-coding-semantic-governance` 重命名为 `EchoYue-lp/echo-semantic`；
+- GitHub Action 使用方必须显式更新到 `EchoYue-lp/echo-semantic@<ref>`，旧 Action 地址不会重定向；
 - 安装新 ID 时自动清理旧 ID 的宿主注册和本地投影。

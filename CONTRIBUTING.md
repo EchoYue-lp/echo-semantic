@@ -22,8 +22,8 @@
 获取代码并验证基线：
 
 ```bash
-git clone https://github.com/EchoYue-lp/echo-coding-semantic-governance.git
-cd echo-coding-semantic-governance
+git clone https://github.com/EchoYue-lp/echo-semantic.git
+cd echo-semantic
 npm test
 npm run verify
 ```

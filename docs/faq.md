@@ -65,9 +65,10 @@ Skill 适合复用分析、边界判断和风险审查，但不能证明每次�
 
 Echo Semantic 不复制 Supreme 的工程阶段状态，Supreme 也不替代项目的语义基线。
 
-## 为什么插件仓库名比插件 ID 长？
+## GitHub 仓库名和插件 ID 是否一致？
 
-GitHub 仓库继续使用 `echo-coding-semantic-governance` 表达项目目的；面向宿主 UI 的插件 ID 使用更短的 `echo-semantic`，展示名是 `Echo Semantic`。
+一致。GitHub 仓库名、插件 ID 和 marketplace 名都是 `echo-semantic`，展示名是 `Echo Semantic`。旧插件 ID
+`echo-coding-semantic-governance` 只保留在安装器的清理兼容列表中。
 
 ## 可以把 `semantic/` 当作生成文档随时重建吗？
 

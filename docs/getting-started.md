@@ -22,11 +22,11 @@ uv --version
 ## 获取项目
 
 ```bash
-git clone https://github.com/EchoYue-lp/echo-coding-semantic-governance.git
-cd echo-coding-semantic-governance
+git clone https://github.com/EchoYue-lp/echo-semantic.git
+cd echo-semantic
 ```
 
-当前仓库名保留 `echo-coding-semantic-governance`，对外插件 ID 是更短的 `echo-semantic`。
+GitHub 仓库名、插件 ID 和 marketplace 名统一使用 `echo-semantic`，展示名为 `Echo Semantic`。
 
 ## 安装插件
 

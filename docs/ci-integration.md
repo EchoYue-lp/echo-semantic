@@ -40,7 +40,7 @@ jobs:
           npm test
 
       - name: 执行 Echo Semantic 门禁
-        uses: EchoYue-lp/echo-coding-semantic-governance@main
+        uses: EchoYue-lp/echo-semantic@main
         with:
           root: .
           base: ${{ github.event.pull_request.base.sha }}
@@ -48,6 +48,9 @@ jobs:
 ```
 
 正式发布后应把 `@main` 固定为发布标签或完整提交 SHA，避免上游变化未经评估直接进入门禁。
+
+仓库从 `EchoYue-lp/echo-coding-semantic-governance` 重命名后，旧 GitHub Action 地址不会自动重定向。已有工作流必须把
+`uses:` 显式更新为 `EchoYue-lp/echo-semantic@<ref>`；普通网页和 Git 操作的重定向不能作为 Action 兼容保证。
 
 ## 门禁检查内容
 

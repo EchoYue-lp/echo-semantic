@@ -21,8 +21,8 @@
 ## 三分钟开始
 
 ```bash
-git clone https://github.com/EchoYue-lp/echo-coding-semantic-governance.git
-cd echo-coding-semantic-governance
+git clone https://github.com/EchoYue-lp/echo-semantic.git
+cd echo-semantic
 node bin/install.mjs install all
 ```
 
@@ -213,7 +213,7 @@ uv run skills/semantic-status/scripts/status.py --root /absolute/project/path
 
 ```yaml
 - uses: astral-sh/setup-uv@v7
-- uses: EchoYue-lp/echo-coding-semantic-governance@main
+- uses: EchoYue-lp/echo-semantic@main
   with:
     root: .
     base: ${{ github.event.pull_request.base.sha || github.event.before }}

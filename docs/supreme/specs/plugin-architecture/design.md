@@ -118,7 +118,7 @@ flowchart TB
 ## 仓库结构
 
 ```text
-echo-coding-semantic-governance/
+echo-semantic/
 ├── .agents/                    # Codex Marketplace
 ├── .codex-plugin/              # Codex 插件清单
 ├── .cursor-plugin/             # Cursor 插件清单

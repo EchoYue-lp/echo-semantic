@@ -1,10 +1,10 @@
 {
   "name": "echo-semantic",
-  "version": "0.1.0+codex.20260909133058",
+  "version": "0.1.0+codex.20260909155552",
   "description": "Coding Agent 语义预检与持续质量门禁",
   "author": {
     "name": "Echo"
   },
-  "repository": "https://github.com/EchoYue-lp/echo-coding-semantic-governance",
+  "repository": "https://github.com/EchoYue-lp/echo-semantic",
   "hooks": "./hooks/hooks-claude.json"
 }

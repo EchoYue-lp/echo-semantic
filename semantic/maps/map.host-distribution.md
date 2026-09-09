@@ -4,7 +4,7 @@ id: map.host-distribution
 kind: capability_map
 title: Codex、Cursor 与 Claude Code 分发
 risk: medium
-observed_at: source:7dbea6934585778cf089603e25e10bd33043a781dd00fa3b11c9df5a9f158593
+observed_at: source:677bbc9ea253c6fbb8c000981c28c7c3a94e5a8d4b0f7eb906169c77972c2d5f
 boundary_refs: [boundary.host-distribution]
 behavior_refs: [behavior.multi-host-installation]
 rule_refs: [rule.single-semantic-authority]
@@ -32,7 +32,7 @@ scenarios:
 
 ## 能力范围
 
-覆盖三宿主 manifest、marketplace、安装、更新、卸载、Agent 投影和所有权记录。
+覆盖 GitHub 仓库地址、三宿主 manifest、marketplace、安装、更新、卸载、Agent 投影和所有权记录。
 
 ## 入口与输出
 
@@ -60,7 +60,7 @@ Codex 和 Claude Code 使用原生 marketplace；Cursor 使用用户本地插件
 
 ## 用户侧投影
 
-README 提供统一命令和每个宿主的重载要求。
+README 提供统一仓库地址、安装命令和每个宿主的重载要求；CI 文档提供新的 GitHub Action 引用地址。
 
 ## 场景处置清单
 
