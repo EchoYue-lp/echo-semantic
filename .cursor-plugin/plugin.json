@@ -1,0 +1,22 @@
+{
+  "name": "echo-coding-semantic-governance",
+  "displayName": "Echo Coding Semantic Governance",
+  "description": "Coding Agent 语义预检、增量审查和确定性质量门禁",
+  "version": "0.1.0",
+  "author": {
+    "name": "Echo"
+  },
+  "repository": "https://github.com/EchoYue-lp/echo-coding-semantic-governance",
+  "skills": [
+    "./skills/semantic-preflight/",
+    "./skills/semantic-status/",
+    "./skills/semantic-discover/",
+    "./skills/semantic-diff/",
+    "./skills/semantic-audit/",
+    "./skills/semantic-decide/",
+    "./skills/semantic-verify/",
+    "./skills/semantic-contract/"
+  ],
+  "agents": "./agents/",
+  "hooks": "./hooks/hooks-cursor.json"
+}

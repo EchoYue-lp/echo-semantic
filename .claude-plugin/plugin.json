@@ -1,0 +1,10 @@
+{
+  "name": "echo-coding-semantic-governance",
+  "version": "0.1.0",
+  "description": "Coding Agent 语义预检、增量审查和确定性质量门禁",
+  "author": {
+    "name": "Echo"
+  },
+  "repository": "https://github.com/EchoYue-lp/echo-coding-semantic-governance",
+  "hooks": "./hooks/hooks-claude.json"
+}

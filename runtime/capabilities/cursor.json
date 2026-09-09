@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "host": "cursor",
+  "install": "mirror",
+  "skills": "manifest",
+  "agents": "native",
+  "hooks": { "sessionStart": true, "preToolUse": true, "stop": true },
+  "lifecycle": {
+    "startup": "supported",
+    "resume": "supported",
+    "compact": "degraded"
+  }
+}

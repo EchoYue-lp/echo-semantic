@@ -1,0 +1,19 @@
+{
+  "name": "echo-coding-semantic-governance",
+  "owner": {
+    "name": "Echo"
+  },
+  "description": "Echo Coding 语义治理插件本地市场",
+  "metadata": {
+    "description": "面向 Coding Agent 的语义预检、增量审查和确定性质量门禁"
+  },
+  "plugins": [
+    {
+      "name": "echo-coding-semantic-governance",
+      "source": "./",
+      "description": "Coding Agent 语义预检、增量审查和确定性质量门禁",
+      "version": "0.1.0",
+      "strict": true
+    }
+  ]
+}

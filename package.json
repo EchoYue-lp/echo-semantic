@@ -1,0 +1,43 @@
+{
+  "name": "echo-coding-semantic-governance",
+  "version": "0.1.0",
+  "private": true,
+  "description": "面向 Codex、Cursor 和 Claude Code 的项目无关语义治理插件",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "echo-semantic-governance": "./bin/install.mjs"
+  },
+  "files": [
+    ".agents/",
+    ".claude-plugin/",
+    ".codex-plugin/",
+    ".cursor-plugin/",
+    "action.yml",
+    "agents/",
+    "bin/",
+    "docs/",
+    "hooks/",
+    "runtime/",
+    "scripts/",
+    "skills/",
+    "AGENTS.md",
+    "README.md"
+  ],
+  "scripts": {
+    "format:check": "npx --yes prettier@3.6.2 --check '.agents/**/*.json' '.claude-plugin/**/*.json' '.codex-plugin/**/*.json' '.cursor-plugin/**/*.json' '.github/**/*.yml' 'hooks/**/*.{json,mjs}' 'runtime/**/*.json' 'runtime/**/*.mjs' 'bin/**/*.mjs' 'scripts/**/*.mjs' 'tests/**/*.mjs' action.yml package.json && uvx ruff==0.16.6 format --check scripts/governance_contract.py skills/semantic-contract/scripts/verify_semantic.py skills/semantic-preflight/scripts/preflight.py skills/semantic-status/scripts/status.py tests/test_preflight.py && uvx ruff==0.16.6 check scripts/governance_contract.py skills/semantic-contract/scripts/verify_semantic.py skills/semantic-preflight/scripts/preflight.py skills/semantic-status/scripts/status.py tests/test_preflight.py",
+    "test": "node scripts/validate-plugin.mjs && node --test tests/*.test.mjs && python3 -m unittest discover -s tests -p 'test_*.py'",
+    "verify": "npm run format:check && npm test && uv run skills/semantic-contract/scripts/verify_semantic.py --self-test && uv run skills/semantic-contract/scripts/verify_semantic.py --root . --strict-snapshot",
+    "install:all": "node bin/install.mjs install all",
+    "uninstall:all": "node bin/install.mjs uninstall all",
+    "route": "node runtime/route.mjs",
+    "probe": "node runtime/capabilities/probe.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/EchoYue-lp/echo-coding-semantic-governance.git"
+  },
+  "license": "UNLICENSED"
+}

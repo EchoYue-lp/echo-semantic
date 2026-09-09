@@ -1,0 +1,32 @@
+name: Echo Coding Semantic Governance
+description: 校验语义基线、源码引用、路径分类和高风险变更依据
+inputs:
+  root:
+    description: 待校验仓库根目录
+    required: false
+    default: .
+  base:
+    description: 用于增量门禁的 Git 基准 revision
+    required: true
+  require-change-evidence:
+    description: 是否强制高风险差异具有同次语义依据
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: 执行语义治理门禁
+      shell: bash
+      run: |
+        args=(--root "${{ inputs.root }}" --strict-snapshot)
+        if [[ -n "${{ inputs.base }}" ]]; then
+          args+=(--base "${{ inputs.base }}")
+        fi
+        if [[ "${{ inputs.require-change-evidence }}" == "true" ]]; then
+          if [[ -z "${{ inputs.base }}" || "${{ inputs.base }}" =~ ^0+$ ]]; then
+            echo "::error::启用高风险变更依据门禁时必须提供有效 base revision"
+            exit 2
+          fi
+          args+=(--require-change-evidence)
+        fi
+        uv run "$GITHUB_ACTION_PATH/skills/semantic-contract/scripts/verify_semantic.py" "${args[@]}"

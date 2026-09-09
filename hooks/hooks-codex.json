@@ -1,0 +1,41 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/hooks/entry.mjs\" codex session-start",
+            "timeout": 10,
+            "statusMessage": "加载语义治理规则"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/hooks/entry.mjs\" codex pre-compact",
+            "timeout": 10,
+            "statusMessage": "保存语义治理任务继续包"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/hooks/entry.mjs\" codex stop",
+            "timeout": 120,
+            "statusMessage": "验证语义基线与变更依据"
+          }
+        ]
+      }
+    ]
+  }
+}

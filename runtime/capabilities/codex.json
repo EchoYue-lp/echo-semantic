@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "host": "codex",
+  "install": "cli",
+  "skills": "manifest",
+  "agents": "projection",
+  "hooks": { "sessionStart": true, "preToolUse": false, "stop": true },
+  "lifecycle": {
+    "startup": "supported",
+    "resume": "supported",
+    "compact": "degraded"
+  }
+}
