@@ -4,7 +4,7 @@ id: map.host-distribution
 kind: capability_map
 title: Codex、Cursor 与 Claude Code 分发
 risk: medium
-observed_at: source:82db29a7157684b79a0645b30c9bf22b97cc8c9d1749b29c6d5b7a2c29915711
+observed_at: source:7dbea6934585778cf089603e25e10bd33043a781dd00fa3b11c9df5a9f158593
 boundary_refs: [boundary.host-distribution]
 behavior_refs: [behavior.multi-host-installation]
 rule_refs: [rule.single-semantic-authority]
@@ -36,7 +36,7 @@ scenarios:
 
 ## 入口与输出
 
-统一安装器按宿主返回 `installed`、`skipped`、`failed`、`rolled_back` 或 `manual_action`。
+统一安装器按宿主返回 `installed`、`removed`、`skipped`、`failed` 或 `manual_action`。
 
 ## 行为关系
 
@@ -64,7 +64,8 @@ README 提供统一命令和每个宿主的重载要求。
 
 ## 场景处置清单
 
-Codex、Claude Code 已取得安装与生命周期证据；Cursor 安装完成，运行时仍待重载验收；跨克隆覆盖和悬空链接已有回归证据。
+Codex 已取得安装和入口执行证据；Claude Code 已取得安装及认证失败前事件证据，完整登录会话仍待验收；Cursor 安装完成，
+运行时仍待窗口重载验收；跨克隆覆盖和悬空链接已有回归证据。
 
 ## 未展开项
 

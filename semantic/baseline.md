@@ -4,7 +4,7 @@ id: baseline.repository
 kind: baseline
 source_snapshot:
   base_revision: efd7c18252b749d0d1b399bfbf449bf081e69e8c
-  content_digest: 82db29a7157684b79a0645b30c9bf22b97cc8c9d1749b29c6d5b7a2c29915711
+  content_digest: 7dbea6934585778cf089603e25e10bd33043a781dd00fa3b11c9df5a9f158593
 inventory_closure: closed
 behavior_model_closure: open
 map_refs:
@@ -26,7 +26,15 @@ regions:
     status: supporting
   - path: AGENTS.md
     status: supporting
+  - path: CHANGELOG.md
+    status: supporting
+  - path: CODE_OF_CONDUCT.md
+    status: supporting
+  - path: CONTRIBUTING.md
+    status: supporting
   - path: README.md
+    status: supporting
+  - path: SECURITY.md
     status: supporting
   - path: action.yml
     status: in_scope

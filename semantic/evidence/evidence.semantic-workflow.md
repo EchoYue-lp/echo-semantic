@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.semantic-workflow
 kind: evidence
-observed_at: source:82db29a7157684b79a0645b30c9bf22b97cc8c9d1749b29c6d5b7a2c29915711
+observed_at: source:7dbea6934585778cf089603e25e10bd33043a781dd00fa3b11c9df5a9f158593
 source_refs:
   - skills/semantic-contract/SKILL.md#语义材料合同
   - skills/semantic-contract/references/semantic-artifact-contract.md#语义材料合同
@@ -15,6 +15,8 @@ source_refs:
   - runtime/capabilities/load.mjs#loadCapabilities
   - runtime/capabilities/probe.mjs#probeHost
   - skills/semantic-status/scripts/status.py#status
+  - README.md#架构总览
+  - docs/supreme/specs/plugin-architecture/design.md#系统边界
 supports: [behavior.preflight-before-write, rule.single-semantic-authority]
 limitations:
   - Skill 是否自动触发仍由各宿主模型和发现机制决定
@@ -29,7 +31,7 @@ design/ADR 解析合同，压缩恢复只携带短期任务线索。
 
 ## 来源与范围
 
-来源为 Skill 正文、架构收敛工作流和只读 Agent 合同。
+来源为 Skill 正文、架构收敛工作流、只读 Agent 合同和项目架构设计。
 
 ## 已知缺口
 

@@ -6,6 +6,34 @@
 插件不替代 formatter、Lint、类型检查、单元测试、契约测试或集成测试。Skill 负责需要判断的工作，Hook 负责
 生命周期接线，校验器和 CI 负责确定性阻断。
 
+> 当前状态：`0.1.x` 开发阶段。核心合同、自动测试和 Codex 本地安装已验证；Cursor 窗口重载、Claude Code 登录后的
+> 完整会话仍需要持续补充真实宿主证据。首个公共发布许可证尚待项目所有者决定。
+
+## 解决什么问题
+
+- **生成前失控**：写代码前先查已有 Capability、Rule、API、实现和测试，明确允许路径与验证要求；
+- **重复实现**：新增能力必须说明复用关系，不能复用时必须给出边界理由；
+- **架构漂移**：公共 API、协议、状态权威和跨服务迁移必须绑定正式 design/ADR；
+- **事后审查过晚**：首个差异形成后追踪影响闭包，高风险边界进入定向审查；
+- **模型提示约束弱**：Hook 接入编辑、压缩和停止生命周期，CI 对最终 Git 差异重新验证；
+- **语义材料漂移**：源码摘要、路径分类、源码引用、对象关系和 Finding 关闭条件都可机器校验。
+
+## 三分钟开始
+
+```bash
+git clone https://github.com/EchoYue-lp/echo-coding-semantic-governance.git
+cd echo-coding-semantic-governance
+node bin/install.mjs install all
+```
+
+安装后新建 Codex 或 Claude Code 会话；Cursor 需要重新加载窗口。然后在目标 Git 项目中要求 Agent：
+
+```text
+请使用 semantic-discover 建立当前仓库的语义基线；完成后运行严格快照验证。
+```
+
+完整步骤见 [快速开始](docs/getting-started.md)。
+
 ## 为什么不是流式提示
 
 单个 Skill 只能影响模型当下的一轮决策，不能证明它被加载、不能阻止越界写入，也不能在上下文压缩后恢复未决事项。
@@ -17,6 +45,66 @@
 - Stop 和 GitHub Action 重新运行确定性校验器；高风险路径必须有同次语义对象和 design/ADR 依据，最终结果不依赖模型是否“记得”执行 Skill。
 
 这使插件具备“生成前约束、生成中范围控制、压缩后可恢复、生成后可反证、合并时再验证”的闭环，同时不建立数据库、常驻进程或第二套长期语义权威。
+
+## 架构总览
+
+```mermaid
+flowchart LR
+  Host[Codex / Cursor / Claude Code] --> Adapter[Manifest、Hook 与 Agent 适配]
+  Adapter --> Control[能力探测、风险路由与继续包]
+  Control --> Skills[语义 Skill 与只读审查 Agent]
+  Skills --> Semantic[项目 semantic/]
+  Skills --> Design[项目 design / ADR]
+  Control --> Private[Git 私有任务状态]
+  Semantic --> Verifier[确定性语义校验器]
+  Design --> Verifier
+  Private --> Verifier
+  Verifier --> CI[项目 CI]
+  Tests[Formatter / Lint / 类型 / 测试] --> CI
+```
+
+架构分为四层：
+
+1. **宿主适配层**：三端 manifest、事件名称、输入输出和安装投影；
+2. **共享控制面**：宿主能力探测、风险路由、预检状态、继续包和状态视图；
+3. **语义判断层**：八个 Skill 与三个只读 Agent；
+4. **确定性门禁层**：语义校验器、GitHub Action 和项目原有工程工具。
+
+详细组件、边界、状态图和时序图见 [项目架构与状态流转设计](docs/supreme/specs/plugin-architecture/design.md)。
+
+## 开发工作流
+
+```mermaid
+flowchart TD
+  Request[新需求] --> Classify[bugfix / feature / refactor / contract / style]
+  Classify --> Preflight[semantic-preflight]
+  Preflight --> DesignGate{架构或公共契约变化?}
+  DesignGate -- 是 --> Authority[更新正式 design / ADR]
+  DesignGate -- 否 --> Coding[AI 编码]
+  Authority --> Coding
+  Coding --> Engineering[Formatter、Lint、类型与测试]
+  Engineering --> Diff[semantic-diff]
+  Diff --> Risk{风险路由}
+  Risk -- fast / standard --> Verify[semantic-verify]
+  Risk -- strict --> Audit[semantic-audit]
+  Audit --> Verify
+  Verify --> CI[CI 最终门禁]
+```
+
+没有 Baseline 的项目先进入 `semantic-discover`。证据无法确定真实产品预期或风险接受时才使用 `semantic-decide`；它不替代正式设计。
+
+## 状态与权威
+
+| 内容           | 位置                                   | 定位                                                            |
+| -------------- | -------------------------------------- | --------------------------------------------------------------- |
+| 长期语义事实   | 项目 `semantic/`                       | Capability、Behavior、Rule、Evidence、Finding、Audit 的唯一权威 |
+| 产品与架构选择 | 项目 design/ADR                        | “应该怎样”的正式权威                                            |
+| 当前任务预检   | `.git/echo-semantic/preflight.json`    | 绑定仓库、HEAD 和任务，最长 24 小时                             |
+| 当前风险路由   | `.git/echo-semantic/route.json`        | 可丢弃计算结果，最长 24 小时                                    |
+| 压缩恢复线索   | `.git/echo-semantic/continuation.json` | 绑定任务、分支和证据摘要，最长 7 天                             |
+| 实现质量       | Formatter、Lint、类型与测试            | 代码质量权威，语义 Skill 不替代                                 |
+
+短期状态损坏或失效只会要求重新预检、重新路由或丢弃恢复提示，不会改写项目长期语义事实。
 
 ## 能力
 
@@ -33,6 +121,16 @@
 
 三个只读 Agent 分别负责边界发现、能力闭合复核和风险审查。宿主不能发现专用 Agent 时，Skill 会降级为宿主已有的
 只读探索或审查能力，不改变长期材料的唯一写入者。
+
+## 宿主支持
+
+| 宿主        | Skill    | Agent     | 编辑前检查     | PreCompact | Stop | 安装方式        |
+| ----------- | -------- | --------- | -------------- | ---------- | ---- | --------------- |
+| Codex       | manifest | TOML 投影 | 当前未稳定覆盖 | 降级支持   | 支持 | CLI + 用户投影  |
+| Cursor      | manifest | 原生目录  | `preToolUse`   | 降级支持   | 支持 | 本地插件链接    |
+| Claude Code | manifest | 原生插件  | `PreToolUse`   | 支持       | 支持 | Marketplace CLI |
+
+“支持”表示已有适配和静态合同，不自动证明当前宿主版本、配置和信任状态下真实事件已经触发。详见 [宿主支持](docs/host-support.md)。
 
 ## 安装
 
@@ -92,6 +190,23 @@ uv run skills/semantic-status/scripts/status.py --root /absolute/project/path
 运行时探测是否可信、开放 Finding、失效 Audit、当前路由和唯一下一入口。完整语义关系和变更证据仍由
 `semantic-verify` 与 CI 确定性校验。
 
+## 文档
+
+- [文档中心](docs/README.md)
+- [快速开始](docs/getting-started.md)
+- [核心概念](docs/concepts.md)
+- [项目架构与状态流转设计](docs/supreme/specs/plugin-architecture/design.md)
+- [宿主支持](docs/host-support.md)
+- [CI 接入](docs/ci-integration.md)
+- [命令参考](docs/command-reference.md)
+- [故障排查](docs/troubleshooting.md)
+- [常见问题](docs/faq.md)
+- [贡献指南](CONTRIBUTING.md)
+- [安全说明](SECURITY.md)
+- [社区行为规范](CODE_OF_CONDUCT.md)
+- [发布指南](docs/releasing.md)
+- [变更记录](CHANGELOG.md)
+
 ## GitHub Actions
 
 项目可以在工作流中加入最终门禁：
@@ -114,9 +229,15 @@ npm test
 npm run verify
 ```
 
+参与开发前阅读 [贡献指南](CONTRIBUTING.md) 和 [发布指南](docs/releasing.md)。
+
 ## 边界
 
 - 不提供数据库、常驻服务或第二套任务运行时。
 - 当前不提供 MCP Server；本地文件和 Git 已足以完成确定性校验。
 - Hook 不修改业务代码，也不自动生成语义结论。
 - 只有项目自己的 `semantic/` 保存 Capability、Behavior、Rule、Evidence、Finding 和 Audit。
+
+## 许可证
+
+当前仓库尚未声明开源许可证。在项目所有者选择并添加 `LICENSE` 前，仓库公开可见不等于授权复制、修改或分发。

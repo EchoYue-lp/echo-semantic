@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.lifecycle-hooks
 kind: evidence
-observed_at: source:82db29a7157684b79a0645b30c9bf22b97cc8c9d1749b29c6d5b7a2c29915711
+observed_at: source:7dbea6934585778cf089603e25e10bd33043a781dd00fa3b11c9df5a9f158593
 source_refs:
   - hooks/entry.mjs#checkEditScope
   - hooks/entry.mjs#function stop
@@ -12,7 +12,13 @@ source_refs:
   - tests/hooks.test.mjs#范围外编辑
   - tests/continuation.test.mjs#PreCompact 保存继续包，resume 只恢复仍可信的任务
   - skills/semantic-contract/scripts/verify_semantic.py#run_self_test
-supports: [behavior.post-change-verification, rule.high-risk-evidence, rule.engineering-tools-own-style]
+  - docs/supreme/specs/plugin-architecture/design.md#宿主生命周期时序
+supports:
+  [
+    behavior.post-change-verification,
+    rule.high-risk-evidence,
+    rule.engineering-tools-own-style,
+  ]
 limitations:
   - Cursor 真实窗口尚未重载验收
 ---
