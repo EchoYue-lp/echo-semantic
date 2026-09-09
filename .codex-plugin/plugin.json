@@ -1,6 +1,6 @@
 {
   "name": "echo-coding-semantic-governance",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260909125405",
   "description": "在编码前建立复用与边界合同，并在编码后执行语义差异、定向审查和确定性验证。",
   "author": {
     "name": "Echo"

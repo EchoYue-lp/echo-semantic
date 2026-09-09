@@ -8,7 +8,7 @@ risk: high
 primary_focus: failure_concurrency
 focus: [contract_evidence, time_lifecycle]
 boundary: boundary.lifecycle-enforcement
-observed_at: source:1c5fa5c28a0ab233e3670eef7d4ee538b875b17dc762918f02f3b780bdd1ff71
+observed_at: source:06fba8cfe0fd5119da378b2fed47d276171530e4fcfa3caf1248f3f247fb79a5
 code_refs:
   - hooks/entry.mjs#function stop
   - skills/semantic-contract/scripts/verify_semantic.py#validate_change_evidence

@@ -1,6 +1,6 @@
 {
   "name": "echo-coding-semantic-governance",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260909125405",
   "private": true,
   "description": "面向 Codex、Cursor 和 Claude Code 的项目无关语义治理插件",
   "type": "module",

@@ -4,7 +4,7 @@ id: map.lifecycle-enforcement
 kind: capability_map
 title: 生命周期 Hook 与确定性门禁
 risk: high
-observed_at: source:1c5fa5c28a0ab233e3670eef7d4ee538b875b17dc762918f02f3b780bdd1ff71
+observed_at: source:06fba8cfe0fd5119da378b2fed47d276171530e4fcfa3caf1248f3f247fb79a5
 boundary_refs: [boundary.lifecycle-enforcement]
 behavior_refs: [behavior.post-change-verification]
 rule_refs: [rule.high-risk-evidence, rule.engineering-tools-own-style]
