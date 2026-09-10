@@ -1,0 +1,56 @@
+{
+  "name": "echo-semantic",
+  "version": "0.1.0+codex.20260910093327",
+  "private": true,
+  "description": "Coding Agent 语义预检与持续质量门禁",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "echo-semantic": "./bin/install.mjs"
+  },
+  "files": [
+    ".agents/",
+    ".claude-plugin/",
+    ".codex-plugin/",
+    ".cursor-plugin/",
+    ".echo-semantic/README.md",
+    ".echo-semantic/audits/.gitkeep",
+    ".echo-semantic/baseline.md",
+    ".echo-semantic/behaviors/",
+    ".echo-semantic/discovery/",
+    ".echo-semantic/evidence/",
+    ".echo-semantic/findings/.gitkeep",
+    ".echo-semantic/maps/",
+    ".echo-semantic/rules/",
+    "action.yml",
+    "agents/",
+    "bin/",
+    "docs/",
+    "hooks/",
+    "runtime/",
+    "scripts/*.mjs",
+    "scripts/*.py",
+    "skills/*/SKILL.md",
+    "skills/*/references/*.md",
+    "skills/*/scripts/*.py",
+    "skills/*/workflows/*.md",
+    "AGENTS.md",
+    "README.md"
+  ],
+  "scripts": {
+    "format:check": "npx --yes prettier@3.6.2 --check '.agents/**/*.json' '.claude-plugin/**/*.json' '.codex-plugin/**/*.json' '.cursor-plugin/**/*.json' '.github/**/*.yml' 'hooks/**/*.{json,mjs}' 'runtime/**/*.json' 'runtime/**/*.mjs' 'bin/**/*.mjs' 'scripts/**/*.mjs' 'tests/**/*.{json,mjs}' action.yml package.json && uvx ruff==0.16.6 format --check scripts/governance_contract.py scripts/preflight_contract.py skills/semantic-contract/scripts/verify_semantic.py skills/semantic-preflight/scripts/preflight.py skills/semantic-status/scripts/status.py tests/test_preflight.py tests/test_preflight_contract.py && uvx ruff==0.16.6 check scripts/governance_contract.py scripts/preflight_contract.py skills/semantic-contract/scripts/verify_semantic.py skills/semantic-preflight/scripts/preflight.py skills/semantic-status/scripts/status.py tests/test_preflight.py tests/test_preflight_contract.py",
+    "test": "node scripts/validate-plugin.mjs && node scripts/validate-package.mjs && node --test tests/*.test.mjs && python3 -m unittest discover -s tests -p 'test_*.py'",
+    "verify": "npm run format:check && npm test && uv run skills/semantic-contract/scripts/verify_semantic.py --self-test && uv run skills/semantic-contract/scripts/verify_semantic.py --root . --strict-snapshot",
+    "install:all": "node bin/install.mjs install all",
+    "uninstall:all": "node bin/install.mjs uninstall all",
+    "route": "node runtime/route.mjs",
+    "probe": "node runtime/capabilities/probe.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/EchoYue-lp/echo-semantic.git"
+  },
+  "license": "UNLICENSED"
+}

@@ -1,0 +1,22 @@
+{
+  "name": "echo-semantic",
+  "displayName": "Echo Semantic",
+  "description": "Coding Agent 语义预检与持续质量门禁",
+  "version": "0.1.0+codex.20260910093327",
+  "author": {
+    "name": "Echo"
+  },
+  "repository": "https://github.com/EchoYue-lp/echo-semantic",
+  "skills": [
+    "./skills/semantic-preflight/",
+    "./skills/semantic-status/",
+    "./skills/semantic-discover/",
+    "./skills/semantic-diff/",
+    "./skills/semantic-audit/",
+    "./skills/semantic-decide/",
+    "./skills/semantic-verify/",
+    "./skills/semantic-contract/"
+  ],
+  "agents": "./agents/",
+  "hooks": "./hooks/hooks-cursor.json"
+}

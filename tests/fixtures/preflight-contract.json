@@ -1,0 +1,27 @@
+{
+  "cases": [
+    { "name": "valid-low-risk", "valid": true },
+    {
+      "name": "invalid-task-id",
+      "valid": false,
+      "set": { "taskId": "invalid task id" }
+    },
+    { "name": "missing-reuse", "valid": false, "remove": ["reuse"] },
+    {
+      "name": "empty-verifications",
+      "valid": false,
+      "set": { "verifications": [] }
+    },
+    {
+      "name": "unexpected-signal",
+      "valid": false,
+      "signals": { "unexpected": true }
+    },
+    {
+      "name": "high-risk-without-evidence",
+      "valid": false,
+      "set": { "risk": "high" },
+      "signals": { "publicApi": true }
+    }
+  ]
+}

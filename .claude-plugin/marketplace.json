@@ -1,0 +1,19 @@
+{
+  "name": "echo-semantic",
+  "owner": {
+    "name": "Echo"
+  },
+  "description": "Echo Semantic 本地市场",
+  "metadata": {
+    "description": "面向 Coding Agent 的语义预检、增量审查和确定性质量门禁"
+  },
+  "plugins": [
+    {
+      "name": "echo-semantic",
+      "source": "./",
+      "description": "Coding Agent 语义预检与持续质量门禁",
+      "version": "0.1.0+codex.20260910093327",
+      "strict": true
+    }
+  ]
+}

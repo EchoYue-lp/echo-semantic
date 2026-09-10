@@ -1,0 +1,22 @@
+{
+  "name": "echo-semantic",
+  "version": "0.1.0+codex.20260910093327",
+  "description": "Coding Agent 语义预检与持续质量门禁",
+  "author": {
+    "name": "Echo"
+  },
+  "repository": "https://github.com/EchoYue-lp/echo-semantic",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Echo Semantic",
+    "shortDescription": "Coding Agent 语义预检与持续质量门禁",
+    "longDescription": "为代码生成提供复用预检、语义基线、影响分析、定向审查和确定性合并证据。",
+    "developerName": "Echo",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "defaultPrompt": [
+      "对这个代码需求执行生成前语义预检",
+      "分析当前代码差异的语义影响并给出验证矩阵"
+    ]
+  }
+}

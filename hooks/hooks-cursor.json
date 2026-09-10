@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/hooks/entry.mjs\" cursor session-start",
+        "timeout": 10
+      }
+    ],
+    "preCompact": [
+      {
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/hooks/entry.mjs\" cursor pre-compact",
+        "timeout": 10
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/hooks/entry.mjs\" cursor pre-edit",
+        "timeout": 10
+      }
+    ],
+    "stop": [
+      {
+        "command": "node \"${CURSOR_PLUGIN_ROOT}/hooks/entry.mjs\" cursor stop",
+        "timeout": 120,
+        "loop_limit": 2
+      }
+    ]
+  }
+}

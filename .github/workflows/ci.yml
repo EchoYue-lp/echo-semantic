@@ -1,0 +1,29 @@
+name: 插件质量门禁
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - uses: astral-sh/setup-uv@v7
+      - name: 执行插件合同和单元测试
+        run: npm test
+      - name: 执行语义基线门禁
+        uses: ./
+        with:
+          root: .
+          base: ${{ github.event.pull_request.base.sha || github.event.before }}

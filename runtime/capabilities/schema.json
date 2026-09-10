@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "host",
+    "install",
+    "skills",
+    "agents",
+    "hooks",
+    "lifecycle"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "host": { "type": "string", "minLength": 1 },
+    "install": { "enum": ["cli", "mirror", "config-merge"] },
+    "skills": { "enum": ["native", "manifest", "unsupported"] },
+    "agents": { "enum": ["native", "projection", "unsupported"] },
+    "hooks": {
+      "type": "object",
+      "required": ["sessionStart", "preToolUse", "stop"],
+      "properties": {
+        "sessionStart": { "type": "boolean" },
+        "preToolUse": { "type": "boolean" },
+        "stop": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "lifecycle": {
+      "type": "object",
+      "required": ["startup", "resume", "compact"],
+      "properties": {
+        "startup": { "enum": ["supported", "degraded", "unsupported"] },
+        "resume": { "enum": ["supported", "degraded", "unsupported"] },
+        "compact": { "enum": ["supported", "degraded", "unsupported"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
