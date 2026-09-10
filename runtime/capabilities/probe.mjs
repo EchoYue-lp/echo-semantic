@@ -71,12 +71,7 @@ export function probeHost(host) {
         name,
         {
           support,
-          probe:
-            name === "startup"
-              ? detected
-                ? "passed"
-                : "blocked"
-              : "live-session-required",
+          probe: detected ? "live-session-required" : "blocked",
         },
       ]),
     ),

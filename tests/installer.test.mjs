@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   readlinkSync,
   realpathSync,
   symlinkSync,
@@ -177,6 +178,7 @@ test("Codex 重命名安装清理旧 Hook、Agent 和状态", () => {
   writeFileSync(resolve(legacyStateRoot, "install-state.json"), "{}\n", "utf8");
 
   const result = spawnSync("node", [installer, "install", "codex"], {
+    cwd: home,
     encoding: "utf8",
     env: {
       ...process.env,
@@ -185,9 +187,74 @@ test("Codex 重命名安装清理旧 Hook、Agent 和状态", () => {
     },
   });
   assert.equal(result.status, 0, result.stderr);
-  const hooks = JSON.parse(readFileSync(hooksPath, "utf8"));
-  assert.equal(hooks.hooks.SessionStart.length, 1);
-  assert.match(hooks.hooks.SessionStart[0].hooks[0].command, /echo-semantic$/);
+  assert.equal(existsSync(hooksPath), false);
+  const distribution = resolve(home, ".echo-semantic/distribution");
+  assert.equal(
+    existsSync(resolve(distribution, ".echo-semantic/baseline.md")),
+    true,
+  );
+  for (const forbidden of [
+    ".echo-semantic/status.md",
+    ".echo-semantic/status.json",
+    ".echo-semantic/preflight.json",
+    ".echo-semantic/route.json",
+    ".echo-semantic/continuation.json",
+    "scripts/__pycache__",
+  ]) {
+    assert.equal(existsSync(resolve(distribution, forbidden)), false);
+  }
+  const nativeHooks = JSON.parse(
+    readFileSync(resolve(distribution, "hooks/hooks.json"), "utf8"),
+  );
+  const probe = resolve(home, "native-hook-events.jsonl");
+  for (const event of ["SessionStart", "PreCompact", "PreToolUse", "Stop"]) {
+    const installedCommand = nativeHooks.hooks[event][0].hooks[0].command;
+    assert.match(installedCommand, /PLUGIN_ROOT/);
+    const hookResult = spawnSync(installedCommand, {
+      cwd: home,
+      input: "{}",
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: home,
+        PLUGIN_ROOT: distribution,
+        PATH: `${dirname(process.execPath)}${process.platform === "win32" ? ";" : ":"}${fakeBin}`,
+      },
+      shell: true,
+    });
+    assert.equal(hookResult.status, 0, hookResult.stderr);
+  }
+  const claudeCommand = nativeHooks.hooks.SessionStart[0].hooks[0].command;
+  const claudeResult = spawnSync(claudeCommand, {
+    cwd: home,
+    input: "{}",
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HOME: home,
+      CLAUDE_PLUGIN_ROOT: distribution,
+      ECHO_SEMANTIC_GOVERNANCE_PROBE_FILE: probe,
+      PATH: `${dirname(process.execPath)}${process.platform === "win32" ? ";" : ":"}${fakeBin}`,
+    },
+    shell: true,
+  });
+  assert.equal(claudeResult.status, 0, claudeResult.stderr);
+  assert.equal(JSON.parse(readFileSync(probe, "utf8")).host, "claude-code");
+  const scriptResult = spawnSync(
+    "python3",
+    [
+      resolve(distribution, "skills/semantic-preflight/scripts/preflight.py"),
+      "--help",
+    ],
+    { cwd: home, encoding: "utf8", env: { ...process.env, HOME: home } },
+  );
+  assert.equal(scriptResult.status, 0, scriptResult.stderr);
+  assert.deepEqual(
+    readdirSync(distribution, { recursive: true }).filter(
+      (path) => path.includes("__pycache__") || path.endsWith(".pyc"),
+    ),
+    [],
+  );
   assert.equal(existsSync(legacyStateRoot), false);
   assert.equal(
     existsSync(
@@ -202,7 +269,185 @@ test("Codex 重命名安装清理旧 Hook、Agent 和状态", () => {
     existsSync(resolve(agentRoot, "echo-semantic-semantic-risk-reviewer.toml")),
     true,
   );
+
+  const uninstall = spawnSync("node", [installer, "uninstall", "codex"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HOME: home,
+      PATH: `${fakeBin}${process.platform === "win32" ? ";" : ":"}${dirname(process.execPath)}`,
+    },
+  });
+  assert.equal(uninstall.status, 0, uninstall.stderr);
+  assert.equal(existsSync(distribution), false);
 });
+
+test("Codex 与 Claude Code 共用分发副本并在最后卸载时清理", () => {
+  const home = mkdtempSync(resolve(tmpdir(), "echo-semantic-shared-dist-"));
+  const fakeBin = resolve(home, "bin");
+  mkdirSync(fakeBin, { recursive: true });
+  for (const command of ["codex", "claude"]) {
+    const executable = resolve(fakeBin, command);
+    writeFileSync(executable, "#!/bin/sh\nexit 0\n", "utf8");
+    chmodSync(executable, 0o755);
+  }
+  const env = {
+    ...process.env,
+    HOME: home,
+    PATH: `${fakeBin}${process.platform === "win32" ? ";" : ":"}${dirname(process.execPath)}`,
+  };
+  const distribution = resolve(home, ".echo-semantic/distribution");
+
+  for (const host of ["codex", "claude-code"]) {
+    const install = spawnSync("node", [installer, "install", host], {
+      encoding: "utf8",
+      env,
+    });
+    assert.equal(install.status, 0, install.stderr);
+    assert.equal(existsSync(distribution), true);
+  }
+
+  const uninstallCodex = spawnSync("node", [installer, "uninstall", "codex"], {
+    encoding: "utf8",
+    env,
+  });
+  assert.equal(uninstallCodex.status, 0, uninstallCodex.stderr);
+  assert.equal(existsSync(distribution), true);
+
+  const uninstallClaude = spawnSync(
+    "node",
+    [installer, "uninstall", "claude-code"],
+    { encoding: "utf8", env },
+  );
+  assert.equal(uninstallClaude.status, 0, uninstallClaude.stderr);
+  assert.equal(existsSync(resolve(home, ".echo-semantic")), false);
+});
+
+test("分发 staging 失败时保留现有副本", () => {
+  const home = mkdtempSync(resolve(tmpdir(), "echo-semantic-stage-failure-"));
+  const fakeBin = resolve(home, "bin");
+  mkdirSync(fakeBin, { recursive: true });
+  const codex = resolve(fakeBin, "codex");
+  writeFileSync(codex, "#!/bin/sh\nexit 0\n", "utf8");
+  chmodSync(codex, 0o755);
+  const npm = resolve(
+    fakeBin,
+    process.platform === "win32" ? "npm.cmd" : "npm",
+  );
+  writeFileSync(
+    npm,
+    process.platform === "win32"
+      ? '@echo [{"files":[{"path":"missing.txt"}]}]\r\n'
+      : '#!/bin/sh\nprintf \'[{"files":[{"path":"missing.txt"}]}]\\n\'\n',
+    "utf8",
+  );
+  chmodSync(npm, 0o755);
+  const distribution = resolve(home, ".echo-semantic/distribution");
+  mkdirSync(distribution, { recursive: true });
+  writeFileSync(resolve(distribution, "marker.txt"), "current\n", "utf8");
+  writeFileSync(
+    resolve(home, ".echo-semantic/install-state.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      pluginId: "echo-semantic",
+      providers: { "claude-code": { status: "installed" } },
+    }),
+    "utf8",
+  );
+
+  const result = spawnSync("node", [installer, "install", "codex"], {
+    cwd: home,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HOME: home,
+      PATH: `${fakeBin}${process.platform === "win32" ? ";" : ":"}${dirname(process.execPath)}`,
+    },
+  });
+  assert.notEqual(result.status, 0);
+  assert.equal(
+    readFileSync(resolve(distribution, "marker.txt"), "utf8"),
+    "current\n",
+  );
+});
+
+test("清理旧 Codex Hook 时保留用户配置的其它顶层字段", () => {
+  const home = mkdtempSync(resolve(tmpdir(), "echo-semantic-hook-ownership-"));
+  const fakeBin = resolve(home, "bin");
+  const codex = resolve(fakeBin, "codex");
+  mkdirSync(fakeBin, { recursive: true });
+  writeFileSync(codex, "#!/bin/sh\nexit 0\n", "utf8");
+  chmodSync(codex, 0o755);
+  const hooksPath = resolve(home, ".codex/hooks.json");
+  mkdirSync(dirname(hooksPath), { recursive: true });
+  writeFileSync(
+    hooksPath,
+    JSON.stringify({
+      metadata: { owner: "user" },
+      hooks: {
+        Stop: [
+          {
+            hooks: [
+              {
+                type: "command",
+                command:
+                  'node "${PLUGIN_ROOT}/hooks/entry.mjs" codex stop echo-semantic',
+              },
+            ],
+          },
+        ],
+      },
+    }),
+    "utf8",
+  );
+
+  const result = spawnSync("node", [installer, "install", "codex"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HOME: home,
+      PATH: `${fakeBin}${process.platform === "win32" ? ";" : ":"}${dirname(process.execPath)}`,
+    },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(hooksPath, "utf8")), {
+    metadata: { owner: "user" },
+    hooks: {},
+  });
+});
+
+for (const action of ["install", "uninstall"]) {
+  test(`Codex ${action} 遇到损坏 Hook 配置时保留原文件且不调用宿主`, () => {
+    const home = mkdtempSync(
+      resolve(tmpdir(), `echo-semantic-corrupt-hooks-${action}-`),
+    );
+    const fakeBin = resolve(home, "bin");
+    const codex = resolve(fakeBin, "codex");
+    mkdirSync(fakeBin, { recursive: true });
+    writeFileSync(
+      codex,
+      '#!/bin/sh\necho called >> "$HOME/codex-calls"\nexit 0\n',
+      "utf8",
+    );
+    chmodSync(codex, 0o755);
+    const hooksPath = resolve(home, ".codex/hooks.json");
+    mkdirSync(dirname(hooksPath), { recursive: true });
+    const damaged = '{"hooks":';
+    writeFileSync(hooksPath, damaged, "utf8");
+
+    const result = spawnSync("node", [installer, action, "codex"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: home,
+        PATH: `${fakeBin}${process.platform === "win32" ? ";" : ":"}${dirname(process.execPath)}`,
+      },
+    });
+    assert.notEqual(result.status, 0);
+    assert.equal(readFileSync(hooksPath, "utf8"), damaged);
+    assert.equal(existsSync(resolve(home, "codex-calls")), false);
+  });
+}
 
 test("未知宿主返回非零且不创建状态", () => {
   const home = mkdtempSync(resolve(tmpdir(), "echo-semantic-invalid-"));

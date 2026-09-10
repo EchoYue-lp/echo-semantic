@@ -10,8 +10,8 @@
 不能证明每次都被加载和执行。只建设 Hook 又无法可靠完成能力归并、产品预期和架构取舍。把整套材料复制到每个
 业务仓库还会形成多份协议和维护漂移。
 
-Codex、Cursor 和 Claude Code 都支持 Skill；三者也提供不同形态的生命周期 Hook。Cursor 与 Claude Code 可以
-在插件中同时携带 Skill、Agent 和 Hook；Codex 使用插件清单发现 Skill，并通过其生命周期配置接入 Hook。
+Codex、Cursor 和 Claude Code 都支持 Skill；三者也提供不同形态的生命周期 Hook。Codex 与 Claude Code 从插件约定路径
+`hooks/hooks.json` 发现原生 Hook，Cursor 使用自己的事件配置；宿主适配层统一进入共享入口。
 
 ## 候选方案
 
@@ -24,7 +24,7 @@ Codex、Cursor 和 Claude Code 都支持 Skill；三者也提供不同形态的�
 1. `skills/` 保存八个流程入口，`agents/` 保存三个只读角色；三个宿主清单只映射同一真理源。
 2. 项目自己的 `.echo-semantic/` 保存唯一长期语义事实，插件不保存业务 Capability、Rule 或状态权威。
 3. `semantic-preflight` 将任务标识、允许路径、边界结论、设计摘要和风险声明写入 `.echo-semantic/preflight.json`；PreCompact 以同一任务状态生成带证据摘要的继续包，resume 只恢复仍匹配仓库、分支和证据的包；会话开始、无变化 Stop 或成功 Stop 会消费旧记录，失败 Stop 保留给同一任务重试。
-4. Hook 在会话开始注入最小路由提示和可信 Frontier，Claude Code 与 Cursor 在编辑工具执行前检查允许路径，PreCompact 保存恢复线索，停止前运行确定性校验；Codex 的编辑前事件覆盖不足时由 Stop、PreCompact 和 CI 收口。未采用 `.echo-semantic/` 的项目不被阻断。
+4. Codex 与 Claude Code 共用插件原生 `hooks/hooks.json`，使 Hook 在宿主界面保留插件来源；Cursor 使用专用事件映射。Hook 在会话开始注入最小路由提示和可信 Frontier，Claude Code 与 Cursor 在编辑工具执行前检查允许路径，PreCompact 保存恢复线索，停止前运行确定性校验；Codex 的编辑前工具名覆盖不足时由 Stop、PreCompact 和 CI 收口。未采用 `.echo-semantic/` 的项目不被阻断。
 5. `runtime/route.mjs` 同时读取静态能力合同和 `probeHost` 运行时结果；探测失败或停止 Hook 未验证时强制进入 `bootstrap`，路由状态区分声明能力与运行时探测，不把静态清单当真实会话证据。
 6. GitHub Action 提供与宿主无关的最终门禁；项目原有 formatter、Lint、类型、测试和契约工具继续拥有代码质量权威。
 7. 新公共 API、新状态权威、新协议、跨服务迁移和未映射生产路径必须具有同次语义依据；架构变化还必须绑定并更新正式设计或 ADR。
@@ -32,7 +32,7 @@ Codex、Cursor 和 Claude Code 都支持 Skill；三者也提供不同形态的�
 9. 安装器是插件分发工具，不承担事务性来源迁移。安装和卸载按宿主渠道直接覆盖本插件对应内容；`all` 先检测宿主是否存在，
    未安装宿主返回 `skipped`，显式指定未安装宿主返回 `manual_action`。完整卸载删除插件私有状态目录。
 10. 对外展示名使用 `Echo Semantic`，GitHub 仓库、三宿主插件 ID 和 marketplace 名统一为 `echo-semantic`。安装新 ID 时
-    直接清理旧插件 ID 的宿主注册、Hook、Agent、Cursor 链接和安装状态；旧 GitHub Action 地址不提供重命名兼容承诺。
+    直接清理旧插件 ID 的宿主注册、用户级 Hook 投影、Agent、Cursor 链接和安装状态；旧 GitHub Action 地址不提供重命名兼容承诺。
 
 ## 影响
 

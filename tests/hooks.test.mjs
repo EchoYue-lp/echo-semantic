@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdtempSync,
@@ -19,6 +20,34 @@ function git(cwd, ...args) {
   const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
+}
+
+function preflightState(repository, head, taskId, allowedPaths) {
+  return {
+    schemaVersion: 1,
+    pluginId: "echo-semantic",
+    repositoryRoot: realpathSync(repository),
+    baseRevision: head,
+    recordedAt: new Date().toISOString(),
+    taskId,
+    kind: "bugfix",
+    risk: "low",
+    allowedPaths,
+    reuse: ["复用现有能力"],
+    verifications: ["定向测试"],
+    basis: [],
+    semanticRefs: [],
+    signals: {
+      publicApi: false,
+      newStateAuthority: false,
+      newProtocol: false,
+      crossServiceMigration: false,
+      architectureChange: false,
+      unknownProductionCode: false,
+    },
+    boundaryDecision: { createsNew: false, reason: "复用现有边界" },
+    designAuthorities: [],
+  };
 }
 
 test("SessionStart 为不同宿主输出对应上下文字段", () => {
@@ -80,19 +109,13 @@ test("已采用语义基线的项目阻断预检范围外编辑", () => {
   git(repository, "add", ".echo-semantic/baseline.md");
   git(repository, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
   const head = git(repository, "rev-parse", "HEAD");
-  const canonicalRepository = realpathSync(repository);
   const state = resolve(repository, ".echo-semantic/preflight.json");
   mkdirSync(resolve(state, ".."), { recursive: true });
   writeFileSync(
     state,
-    JSON.stringify({
-      schemaVersion: 1,
-      repositoryRoot: canonicalRepository,
-      baseRevision: head,
-      recordedAt: new Date().toISOString(),
-      taskId: "task-scope-test",
-      allowedPaths: ["src"],
-    }),
+    JSON.stringify(
+      preflightState(repository, head, "task-scope-test", ["src"]),
+    ),
     "utf8",
   );
   const allowed = spawnSync("node", [hook, "cursor", "pre-edit"], {
@@ -110,6 +133,92 @@ test("已采用语义基线的项目阻断预检范围外编辑", () => {
   });
   assert.equal(denied.status, 2);
   assert.match(denied.stderr, /超出/);
+
+  const malformedState = preflightState(
+    repository,
+    head,
+    "task-malformed-test",
+    ["src"],
+  );
+  delete malformedState.reuse;
+  writeFileSync(state, JSON.stringify(malformedState), "utf8");
+  const malformed = spawnSync("node", [hook, "cursor", "pre-edit"], {
+    cwd: repository,
+    input: JSON.stringify({ cwd: repository, file_path: "src/lib.rs" }),
+    encoding: "utf8",
+  });
+  assert.equal(malformed.status, 2);
+  assert.match(malformed.stderr, /没有当前任务的有效 semantic-preflight/);
+
+  const missingReference = preflightState(
+    repository,
+    head,
+    "task-missing-reference",
+    ["src"],
+  );
+  missingReference.semanticRefs = ["rule.missing"];
+  writeFileSync(state, JSON.stringify(missingReference), "utf8");
+  const missing = spawnSync("node", [hook, "cursor", "pre-edit"], {
+    cwd: repository,
+    input: JSON.stringify({ cwd: repository, file_path: "src/lib.rs" }),
+    encoding: "utf8",
+  });
+  assert.equal(missing.status, 2);
+  assert.match(missing.stderr, /没有当前任务的有效 semantic-preflight/);
+});
+
+test("设计权威摘要变化后 Hook 拒绝沿用高风险预检", () => {
+  const repository = mkdtempSync(resolve(tmpdir(), "echo-semantic-authority-"));
+  git(repository, "init", "-q");
+  git(repository, "config", "user.email", "test@example.com");
+  git(repository, "config", "user.name", "Test");
+  mkdirSync(resolve(repository, ".echo-semantic/rules"), { recursive: true });
+  writeFileSync(
+    resolve(repository, ".echo-semantic/baseline.md"),
+    "baseline\n",
+    "utf8",
+  );
+  writeFileSync(
+    resolve(repository, ".echo-semantic/rules/rule.authority.md"),
+    "---\nid: rule.authority\n---\n",
+    "utf8",
+  );
+  const designPath = resolve(repository, "docs/design/design.md");
+  mkdirSync(resolve(designPath, ".."), { recursive: true });
+  const design =
+    "# 设计\n\n## 目标\n目标\n\n## 范围\n范围\n\n## 方案\n方案\n\n## 验收\n验收\n";
+  writeFileSync(designPath, design, "utf8");
+  git(repository, "add", ".");
+  git(repository, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
+  const head = git(repository, "rev-parse", "HEAD");
+  const state = preflightState(repository, head, "task-authority-test", [
+    "src",
+  ]);
+  state.risk = "high";
+  state.basis = ["架构依据"];
+  state.semanticRefs = ["rule.authority"];
+  state.signals.architectureChange = true;
+  state.designAuthorities = [
+    {
+      path: "docs/design/design.md",
+      kind: "design",
+      contentDigest: createHash("sha256").update(design).digest("hex"),
+    },
+  ];
+  writeFileSync(
+    resolve(repository, ".echo-semantic/preflight.json"),
+    JSON.stringify(state),
+    "utf8",
+  );
+  writeFileSync(designPath, `${design}变化\n`, "utf8");
+
+  const result = spawnSync("node", [hook, "cursor", "pre-edit"], {
+    cwd: repository,
+    input: JSON.stringify({ cwd: repository, file_path: "src/lib.rs" }),
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /没有当前任务的有效 semantic-preflight/);
 });
 
 test("失败 Stop 不被去重且保留预检供连续重试", () => {
@@ -126,20 +235,14 @@ test("失败 Stop 不被去重且保留预检供连续重试", () => {
   git(repository, "add", ".echo-semantic/baseline.md");
   git(repository, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
   const head = git(repository, "rev-parse", "HEAD");
-  const canonicalRepository = realpathSync(repository);
   writeFileSync(resolve(repository, "change.txt"), "change\n", "utf8");
   const state = resolve(repository, ".echo-semantic/preflight.json");
   mkdirSync(resolve(state, ".."), { recursive: true });
   writeFileSync(
     state,
-    JSON.stringify({
-      schemaVersion: 1,
-      repositoryRoot: canonicalRepository,
-      baseRevision: head,
-      recordedAt: new Date().toISOString(),
-      taskId: "task-stop-test",
-      allowedPaths: ["change.txt"],
-    }),
+    JSON.stringify(
+      preflightState(repository, head, "task-stop-test", ["change.txt"]),
+    ),
     "utf8",
   );
   for (let attempt = 0; attempt < 2; attempt += 1) {

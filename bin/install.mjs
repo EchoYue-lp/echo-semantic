@@ -2,6 +2,7 @@
 
 import {
   existsSync,
+  cpSync,
   lstatSync,
   mkdirSync,
   readFileSync,
@@ -29,6 +30,7 @@ const marketplace = pluginId;
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const stateRoot = join(homedir(), `.${pluginId}`);
 const stateFile = join(stateRoot, "install-state.json");
+const distributionRoot = join(stateRoot, "distribution");
 const hosts = ["codex", "cursor", "claude-code"];
 const legacyCodexHookCommands = new Set(
   ["session-start", "pre-compact", "stop"].map(
@@ -51,12 +53,13 @@ function commandPath(name) {
   return null;
 }
 
-function run(command, args, dryRun = false) {
+function run(command, args, dryRun = false, { cwd } = {}) {
   if (dryRun) return { status: 0, stdout: "", stderr: "" };
   const result = spawnSync(command, args, {
     encoding: "utf8",
     timeout: 120_000,
     env: process.env,
+    cwd,
   });
   if (result.status !== 0) {
     throw new InstallError(
@@ -158,63 +161,122 @@ function pluginHook(group) {
   );
 }
 
-function updateCodexHooks(dryRun) {
+function readCodexHooks() {
   const target = codexHooksPath();
-  let current = { hooks: {} };
-  if (existsSync(target)) {
-    try {
-      current = JSON.parse(readFileSync(target, "utf8"));
-    } catch {
-      current = { hooks: {} };
-    }
+  if (!existsSync(target)) return { hooks: {} };
+  let current;
+  try {
+    current = JSON.parse(readFileSync(target, "utf8"));
+  } catch (error) {
+    throw new InstallError(
+      `Codex Hook 配置无法解析，已保留原文件：${error.message}`,
+    );
   }
   if (!current || typeof current !== "object" || Array.isArray(current))
-    current = { hooks: {} };
+    throw new InstallError("Codex Hook 配置必须是对象，已保留原文件");
+  if (current.hooks === undefined) current.hooks = {};
   if (
     !current.hooks ||
     typeof current.hooks !== "object" ||
     Array.isArray(current.hooks)
   )
-    current.hooks = {};
-  for (const [event, groups] of Object.entries(current.hooks)) {
-    if (!Array.isArray(groups)) continue;
-    current.hooks[event] = groups.filter((group) => !pluginHook(group));
-    if (current.hooks[event].length === 0) delete current.hooks[event];
+    throw new InstallError("Codex Hook 配置的 hooks 必须是对象，已保留原文件");
+  return current;
+}
+
+function stageDistribution(dryRun) {
+  if (dryRun) return distributionRoot;
+  const npm = commandPath("npm");
+  if (!npm) throw new InstallError("没有检测到 npm，无法生成插件分发目录");
+  const packed = run(npm, ["pack", "--dry-run", "--json"], false, {
+    cwd: pluginRoot,
+  });
+  let entries;
+  try {
+    entries = JSON.parse(packed.stdout);
+  } catch (error) {
+    throw new InstallError(`npm pack 输出无法解析：${error.message}`);
   }
-  const template = JSON.parse(
-    readFileSync(join(pluginRoot, "hooks", "hooks-codex.json"), "utf8"),
-  );
-  for (const [event, groups] of Object.entries(template.hooks || {})) {
-    if (!Array.isArray(groups)) continue;
-    if (!Array.isArray(current.hooks[event])) current.hooks[event] = [];
-    current.hooks[event].push(...groups);
+  const files = entries?.at(0)?.files;
+  if (!Array.isArray(files) || files.length === 0)
+    throw new InstallError("npm pack 没有返回可安装文件");
+
+  mkdirSync(stateRoot, { recursive: true });
+  const pending = join(stateRoot, `.distribution.${process.pid}.pending`);
+  const previous = join(stateRoot, `.distribution.${process.pid}.previous`);
+  rmSync(pending, { recursive: true, force: true });
+  rmSync(previous, { recursive: true, force: true });
+  try {
+    for (const entry of files) {
+      const relativePath = entry?.path?.replaceAll("\\", "/");
+      if (
+        typeof relativePath !== "string" ||
+        !relativePath ||
+        relativePath.startsWith("/") ||
+        /^[A-Za-z]:\//.test(relativePath) ||
+        relativePath.split("/").includes("..")
+      ) {
+        throw new InstallError(`npm pack 返回不安全路径：${relativePath}`);
+      }
+      const source = resolve(pluginRoot, relativePath);
+      const target = resolve(pending, relativePath);
+      mkdirSync(dirname(target), { recursive: true });
+      cpSync(source, target, { dereference: true });
+    }
+    for (const required of [
+      ".codex-plugin/plugin.json",
+      "hooks/hooks.json",
+      "skills/semantic-preflight/SKILL.md",
+    ]) {
+      if (!existsSync(resolve(pending, required)))
+        throw new InstallError(`分发副本缺少必需文件：${required}`);
+    }
+    if (existsSync(distributionRoot)) {
+      const stat = lstatSync(distributionRoot);
+      if (!stat.isDirectory() || stat.isSymbolicLink())
+        throw new InstallError(`分发副本必须是普通目录：${distributionRoot}`);
+      renameSync(distributionRoot, previous);
+    }
+    try {
+      renameSync(pending, distributionRoot);
+    } catch (error) {
+      if (existsSync(previous)) renameSync(previous, distributionRoot);
+      throw error;
+    }
+    rmSync(previous, { recursive: true, force: true });
+  } catch (error) {
+    rmSync(pending, { recursive: true, force: true });
+    throw error instanceof InstallError
+      ? error
+      : new InstallError(`无法生成插件分发副本：${error.message}`);
   }
-  if (!dryRun) {
-    mkdirSync(dirname(target), { recursive: true });
-    const temporary = join(dirname(target), `.hooks.${process.pid}.tmp`);
-    writeFileSync(temporary, `${JSON.stringify(current, null, 2)}\n`, "utf8");
-    renameSync(temporary, target);
+  return distributionRoot;
+}
+
+function cleanupDistribution(state, dryRun) {
+  if (!dryRun && !state.providers.codex && !state.providers["claude-code"]) {
+    rmSync(distributionRoot, { recursive: true, force: true });
   }
-  return target;
 }
 
 function removeCodexHooks(dryRun) {
   const target = codexHooksPath();
   if (!existsSync(target)) return;
-  let current;
-  try {
-    current = JSON.parse(readFileSync(target, "utf8"));
-  } catch {
-    if (!dryRun) rmSync(target);
-    return;
-  }
+  const current = readCodexHooks();
+  let changed = false;
   for (const [event, groups] of Object.entries(current.hooks || {})) {
     if (!Array.isArray(groups)) continue;
-    current.hooks[event] = groups.filter((group) => !pluginHook(group));
+    const filtered = groups.filter((group) => !pluginHook(group));
+    if (filtered.length !== groups.length) changed = true;
+    current.hooks[event] = filtered;
     if (current.hooks[event].length === 0) delete current.hooks[event];
   }
-  if (!dryRun) {
-    if (Object.keys(current.hooks || {}).length === 0) rmSync(target);
+  if (!dryRun && changed) {
+    if (
+      Object.keys(current.hooks || {}).length === 0 &&
+      Object.keys(current).every((key) => key === "hooks")
+    )
+      rmSync(target);
     else writeFileSync(target, `${JSON.stringify(current, null, 2)}\n`, "utf8");
   }
 }
@@ -269,6 +331,8 @@ function removeCodexAgents(dryRun) {
 function installCodex(dryRun) {
   const command = commandPath("codex");
   if (!command) throw new InstallError("没有检测到 Codex CLI");
+  readCodexHooks();
+  const installedRoot = stageDistribution(dryRun);
   for (const id of [pluginId, ...legacyPluginIds]) {
     bestEffort(command, ["plugin", "remove", `${id}@${id}`, "--json"], dryRun);
     bestEffort(
@@ -277,7 +341,11 @@ function installCodex(dryRun) {
       dryRun,
     );
   }
-  run(command, ["plugin", "marketplace", "add", pluginRoot, "--json"], dryRun);
+  run(
+    command,
+    ["plugin", "marketplace", "add", installedRoot, "--json"],
+    dryRun,
+  );
   run(
     command,
     ["plugin", "add", `${pluginId}@${marketplace}`, "--json"],
@@ -285,13 +353,14 @@ function installCodex(dryRun) {
   );
   removeCodexAgents(dryRun);
   updateCodexAgents(dryRun);
-  updateCodexHooks(dryRun);
+  removeCodexHooks(dryRun);
   return { status: "installed", pluginRef: `${pluginId}@${marketplace}` };
 }
 
 function uninstallCodex(dryRun) {
   const command = commandPath("codex");
   if (!command) throw new InstallError("没有检测到 Codex CLI");
+  readCodexHooks();
   for (const id of [pluginId, ...legacyPluginIds]) {
     bestEffort(command, ["plugin", "remove", `${id}@${id}`, "--json"], dryRun);
     bestEffort(
@@ -308,6 +377,7 @@ function uninstallCodex(dryRun) {
 function installClaude(dryRun) {
   const command = commandPath("claude");
   if (!command) throw new InstallError("没有检测到 Claude Code CLI");
+  const installedRoot = stageDistribution(dryRun);
   for (const id of [pluginId, ...legacyPluginIds]) {
     bestEffort(
       command,
@@ -318,7 +388,7 @@ function installClaude(dryRun) {
   }
   run(
     command,
-    ["plugin", "marketplace", "add", pluginRoot, "--scope", "user"],
+    ["plugin", "marketplace", "add", installedRoot, "--scope", "user"],
     dryRun,
   );
   run(
@@ -434,6 +504,7 @@ function main() {
     }
   }
   if (!dryRun) {
+    cleanupDistribution(state, false);
     persistState(state);
     removeLegacyState(false);
   }

@@ -19,6 +19,11 @@ from typing import Any
 
 import yaml
 
+sys.dont_write_bytecode = True
+PLUGIN_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
+from preflight_contract import validate_preflight
+
 PLUGIN_ID = "echo-semantic"
 ROUTES = {"bootstrap", "fast", "standard", "strict", "idle"}
 KINDS = {"bugfix", "feature", "refactor", "contract", "style"}
@@ -44,6 +49,18 @@ def git(root: Path, *args: str) -> str:
     if result.returncode != 0:
         raise RuntimeError(result.stderr.strip() or "Git 命令失败")
     return result.stdout.strip()
+
+
+def git_status(root: Path) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain=v1", "--untracked-files=all"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "Git 状态读取失败")
+    return result.stdout
 
 
 def repository_root(value: Path) -> Path:
@@ -116,42 +133,13 @@ def scan_objects(root: Path) -> dict[str, Any]:
 def preflight_state(root: Path, value: dict[str, Any] | None) -> dict[str, Any]:
     if value is None:
         return {"present": False, "fresh": False}
-    reasons: list[str] = []
-    if value.get("schemaVersion") != 1:
-        reasons.append("版本无效")
-    if value.get("pluginId") != PLUGIN_ID:
-        reasons.append("插件标识无效")
-    if value.get("repositoryRoot") != str(root.resolve()):
-        reasons.append("仓库无效")
-    if not re.fullmatch(r"[0-9a-f]{40}", str(value.get("baseRevision", ""))):
-        reasons.append("基准 revision 无效")
-    elif value.get("baseRevision") != git(root, "rev-parse", "HEAD"):
-        reasons.append("基准 revision 不是当前 HEAD")
-    if not isinstance(value.get("taskId"), str) or not value.get("taskId"):
-        reasons.append("taskId 无效")
-    if value.get("kind") not in KINDS:
-        reasons.append("变更分类无效")
-    if value.get("risk") not in RISKS:
-        reasons.append("风险等级无效")
-    if not isinstance(value.get("allowedPaths"), list) or not value.get("allowedPaths"):
-        reasons.append("允许路径无效")
-    if not isinstance(value.get("boundaryDecision"), dict):
-        reasons.append("边界结论无效")
-    if not isinstance(value.get("signals"), dict):
-        reasons.append("风险信号无效")
-    recorded_at = value.get("recordedAt")
-    fresh = False
-    try:
-        timestamp = datetime.fromisoformat(str(recorded_at))
-        if timestamp.tzinfo is not None:
-            age = datetime.now(timezone.utc) - timestamp.astimezone(timezone.utc)
-            fresh = 0 <= age.total_seconds() <= 24 * 60 * 60
-    except ValueError:
-        pass
+    reasons = validate_preflight(
+        value, root, current_head=git(root, "rev-parse", "HEAD")
+    )
     return {
         "present": True,
         "valid": not reasons,
-        "fresh": fresh and not reasons,
+        "fresh": not reasons,
         "taskId": value.get("taskId"),
         "risk": value.get("risk"),
         "kind": value.get("kind"),
@@ -222,6 +210,14 @@ def route_state(root: Path, value: dict[str, Any] | None) -> dict[str, Any]:
         reasons.append("插件标识无效")
     if value.get("repositoryRoot") != str(root.resolve()):
         reasons.append("仓库不匹配")
+    current_head = git(root, "rev-parse", "HEAD")
+    if value.get("headRevision") != current_head:
+        reasons.append("路由 HEAD 已变化")
+    current_worktree_digest = hashlib.sha256(
+        git_status(root).encode("utf-8")
+    ).hexdigest()
+    if value.get("worktreeDigest") != current_worktree_digest:
+        reasons.append("路由工作树已变化")
     if value.get("route") not in ROUTES:
         reasons.append("路由无效")
     if not isinstance(value.get("host"), str) or not value.get("host"):
@@ -237,12 +233,67 @@ def route_state(root: Path, value: dict[str, Any] | None) -> dict[str, Any]:
         runtime_probe.get("detected"), bool
     ):
         reasons.append("运行时探测无效")
+        runtime_probe = {}
     enforcement = value.get("enforcement")
     if not isinstance(enforcement, dict) or any(
         not isinstance(enforcement.get(key), bool)
         for key in ("preEdit", "stop", "continuation")
     ):
         reasons.append("执行能力无效")
+        enforcement = {}
+    hook_evidence = value.get("hookEvidence")
+    valid_evidence: set[str] = set()
+    if not isinstance(hook_evidence, dict):
+        reasons.append("Hook 事件证据无效")
+        hook_evidence = {}
+    try:
+        plugin_version = json.loads(
+            (PLUGIN_ROOT / "package.json").read_text(encoding="utf-8")
+        ).get("version")
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        plugin_version = None
+        reasons.append("插件版本不可读")
+    for name, evidence in hook_evidence.items():
+        if name not in {
+            "sessionStart",
+            "preEdit",
+            "preCompact",
+            "stop",
+        } or not isinstance(evidence, dict):
+            reasons.append(f"Hook 事件证据无效：{name}")
+            continue
+        try:
+            observed = datetime.fromisoformat(str(evidence.get("observedAt")))
+            age = datetime.now(timezone.utc) - observed.astimezone(timezone.utc)
+        except ValueError:
+            reasons.append(f"Hook 事件时间无效：{name}")
+            continue
+        if age < timedelta(0) or age > timedelta(hours=24):
+            reasons.append(f"Hook 事件证据过期：{name}")
+            continue
+        if evidence.get("pluginVersion") != plugin_version:
+            reasons.append(f"Hook 事件插件版本不匹配：{name}")
+            continue
+        if evidence.get("hostVersion") != runtime_probe.get("version"):
+            reasons.append(f"Hook 事件宿主版本不匹配：{name}")
+            continue
+        valid_evidence.add(name)
+    capabilities = value.get("capabilities")
+    if not isinstance(capabilities, dict):
+        reasons.append("静态能力无效")
+        capabilities = {}
+    hooks = capabilities.get("hooks", {})
+    lifecycle = capabilities.get("lifecycle", {})
+    expected_enforcement = {
+        "preEdit": "preEdit" in valid_evidence and hooks.get("preToolUse") is True,
+        "stop": "stop" in valid_evidence and hooks.get("stop") is True,
+        "continuation": "preCompact" in valid_evidence
+        and lifecycle.get("compact") != "unsupported",
+    }
+    if enforcement != expected_enforcement:
+        reasons.append("执行能力与 Hook 事件证据不一致")
+    if value.get("route") != "bootstrap" and "stop" not in valid_evidence:
+        reasons.append("非 bootstrap 路由缺少停止 Hook 事件证据")
     updated_at = value.get("updatedAt")
     try:
         timestamp = datetime.fromisoformat(str(updated_at))
@@ -324,6 +375,46 @@ def continuation_state(root: Path, value: dict[str, Any] | None) -> dict[str, An
     }
 
 
+def visible_status_state(root: Path, value: dict[str, Any] | None) -> dict[str, Any]:
+    if value is None:
+        return {"present": False, "trusted": False, "reasons": []}
+    reasons: list[str] = []
+    if value.get("schemaVersion") != 1:
+        reasons.append("版本无效")
+    if value.get("pluginId") != PLUGIN_ID:
+        reasons.append("插件标识无效")
+    if value.get("state") not in {"working", "ready", "blocked", "idle", "stale"}:
+        reasons.append("状态值无效")
+    revision = value.get("revision")
+    if not isinstance(revision, str) or not revision:
+        reasons.append("状态版本无效")
+    updated_at = value.get("updatedAt")
+    age: timedelta | None = None
+    try:
+        timestamp = datetime.fromisoformat(str(updated_at))
+        age = datetime.now(timezone.utc) - timestamp.astimezone(timezone.utc)
+        if age < timedelta(0) or age > timedelta(days=7):
+            reasons.append("状态时间无效或过期")
+    except ValueError:
+        reasons.append("状态时间无效")
+    markdown = root / ".echo-semantic" / "status.md"
+    try:
+        text = markdown.read_text(encoding="utf-8")
+        if not isinstance(revision, str) or f"状态版本：{revision}" not in text:
+            reasons.append("status.md 与 status.json 版本不一致")
+    except (OSError, UnicodeError):
+        reasons.append("status.md 不可读")
+    effective_state = value.get("state")
+    if effective_state == "working" and age is not None and age > timedelta(minutes=10):
+        effective_state = "stale"
+    return {
+        **value,
+        "effectiveState": effective_state,
+        "trusted": not reasons,
+        "reasons": reasons,
+    }
+
+
 def next_actions(
     baseline: dict[str, Any] | None,
     route: dict[str, Any] | None,
@@ -373,6 +464,7 @@ def status(root: Path) -> dict[str, Any]:
     route = route_state(root, private_json(root, "route.json"))
     preflight = preflight_state(root, private_json(root, "preflight.json"))
     continuation = continuation_state(root, private_json(root, "continuation.json"))
+    visible_status = visible_status_state(root, private_json(root, "status.json"))
     return {
         "schemaVersion": 1,
         "pluginId": PLUGIN_ID,
@@ -389,6 +481,7 @@ def status(root: Path) -> dict[str, Any]:
         "route": route,
         "preflight": preflight,
         "continuation": continuation,
+        "visibleStatus": visible_status,
         "frontier": objects,
         "errors": errors,
         "next": next_actions(baseline_for_actions, route, preflight, objects),

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { randomUUID } from "node:crypto";
 import {
   appendFileSync,
   existsSync,
@@ -38,7 +39,15 @@ export function projectStateDirectory(root) {
 }
 
 export function projectStatePath(root, name) {
-  return join(projectStateDirectory(root), name);
+  if (!RUNTIME_STATE_FILES.includes(name))
+    throw new Error(`无效的 Echo Semantic 运行态文件：${name}`);
+  const directory = projectStateDirectory(root);
+  if (existsSync(directory)) {
+    const stat = lstatSync(directory);
+    if (!stat.isDirectory() || stat.isSymbolicLink())
+      throw new Error(`Echo Semantic 项目目录必须是普通目录：${directory}`);
+  }
+  return join(directory, name);
 }
 
 function legacyStateDirectory(root) {
@@ -52,6 +61,11 @@ export function migrateLegacyProjectState(root) {
   const legacy = legacyStateDirectory(root);
   if (!legacy || resolve(legacy) === resolve(target) || !existsSync(legacy))
     return;
+  if (existsSync(target)) {
+    const targetStat = lstatSync(target);
+    if (!targetStat.isDirectory() || targetStat.isSymbolicLink())
+      throw new Error(`Echo Semantic 项目目录必须是普通目录：${target}`);
+  }
   try {
     const stat = lstatSync(legacy);
     if (!stat.isDirectory() || stat.isSymbolicLink()) return;
@@ -59,8 +73,11 @@ export function migrateLegacyProjectState(root) {
     for (const name of RUNTIME_STATE_FILES) {
       const source = join(legacy, name);
       const destination = join(target, name);
-      if (existsSync(source) && !existsSync(destination))
-        renameSync(source, destination);
+      if (existsSync(source) && !existsSync(destination)) {
+        const sourceStat = lstatSync(source);
+        if (sourceStat.isFile() && !sourceStat.isSymbolicLink())
+          renameSync(source, destination);
+      }
     }
     if (readdirSync(legacy).length === 0)
       rmSync(legacy, { recursive: true, force: true });
@@ -76,10 +93,24 @@ function infoExcludePath(root) {
 }
 
 export function ensureProjectStateDirectory(root) {
-  migrateLegacyProjectState(root);
   const directory = projectStateDirectory(root);
-  mkdirSync(directory, { recursive: true });
+  if (existsSync(directory)) {
+    const stat = lstatSync(directory);
+    if (!stat.isDirectory() || stat.isSymbolicLink())
+      throw new Error(`Echo Semantic 项目目录必须是普通目录：${directory}`);
+  }
+  migrateLegacyProjectState(root);
+  if (!existsSync(directory)) mkdirSync(directory, { recursive: true });
+  const stat = lstatSync(directory);
+  if (!stat.isDirectory() || stat.isSymbolicLink())
+    throw new Error(`Echo Semantic 项目目录必须是普通目录：${directory}`);
   return directory;
+}
+
+function ensureRuntimeFileUntracked(root, name) {
+  const relative = `${PROJECT_STATE_DIRECTORY}/${name}`;
+  if (git(root, ["ls-files", "--error-unmatch", "--", relative]) !== null)
+    throw new Error(`Echo Semantic 运行态文件不能被 Git 跟踪：${relative}`);
 }
 
 export function ensureProjectStateIgnored(root) {
@@ -118,8 +149,12 @@ function atomicWrite(path, content) {
 }
 
 export function writeProjectJson(root, name, value) {
+  if (!RUNTIME_STATE_FILES.includes(name))
+    throw new Error(`无效的 Echo Semantic 运行态文件：${name}`);
   const directory = ensureProjectStateDirectory(root);
-  ensureProjectStateIgnored(root);
+  if (!ensureProjectStateIgnored(root))
+    throw new Error("无法把 Echo Semantic 运行态加入 .git/info/exclude");
+  ensureRuntimeFileUntracked(root, name);
   const target = join(directory, name);
   atomicWrite(target, `${JSON.stringify(value, null, 2)}\n`);
   return target;
@@ -151,6 +186,7 @@ export function writeVisibleStatus(
   } = {},
 ) {
   const updatedAt = new Date().toISOString();
+  const revision = randomUUID();
   const safeNext = Array.isArray(next)
     ? next.filter((item) => typeof item === "string").slice(0, 8)
     : [];
@@ -163,10 +199,13 @@ export function writeVisibleStatus(
     route: typeof route === "string" ? route : null,
     next: safeNext,
     message: shortText(message),
+    revision,
     updatedAt,
   };
   const directory = ensureProjectStateDirectory(root);
-  ensureProjectStateIgnored(root);
+  if (!ensureProjectStateIgnored(root))
+    throw new Error("无法把 Echo Semantic 运行态加入 .git/info/exclude");
+  ensureRuntimeFileUntracked(root, "status.md");
   writeProjectJson(root, "status.json", payload);
   const label = stateLabels[state] || state;
   const routeText = payload.route || "未计算";
@@ -174,7 +213,7 @@ export function writeVisibleStatus(
   const messageText = payload.message ? `\n原因：${payload.message}` : "";
   atomicWrite(
     join(directory, "status.md"),
-    `# Echo Semantic\n\n状态：${label}\n宿主：${host}\n事件：${event}\n路由：${routeText}\n下一步：${nextText}\n更新时间：${updatedAt}${messageText}\n`,
+    `# Echo Semantic\n\n状态：${label}\n宿主：${host}\n事件：${event}\n路由：${routeText}\n下一步：${nextText}\n更新时间：${updatedAt}\n状态版本：${revision}${messageText}\n`,
   );
   return payload;
 }

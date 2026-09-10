@@ -1,0 +1,54 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const{pathToFileURL}=require('node:url'),{join}=require('node:path'),r=process.env.CLAUDE_PLUGIN_ROOT||process.env.PLUGIN_ROOT;if(!r)throw Error('missing plugin root');import(pathToFileURL(join(r,'hooks/plugin-entry.mjs')).href).then(m=>m.run('session-start'))\"",
+            "timeout": 10,
+            "statusMessage": "加载语义治理规则"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const{pathToFileURL}=require('node:url'),{join}=require('node:path'),r=process.env.CLAUDE_PLUGIN_ROOT||process.env.PLUGIN_ROOT;if(!r)throw Error('missing plugin root');import(pathToFileURL(join(r,'hooks/plugin-entry.mjs')).href).then(m=>m.run('pre-compact'))\"",
+            "timeout": 10,
+            "statusMessage": "保存语义治理任务继续包"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const{pathToFileURL}=require('node:url'),{join}=require('node:path'),r=process.env.CLAUDE_PLUGIN_ROOT||process.env.PLUGIN_ROOT;if(!r)throw Error('missing plugin root');import(pathToFileURL(join(r,'hooks/plugin-entry.mjs')).href).then(m=>m.run('pre-edit'))\"",
+            "timeout": 10,
+            "statusMessage": "检查语义预检允许路径"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node -e \"const{pathToFileURL}=require('node:url'),{join}=require('node:path'),r=process.env.CLAUDE_PLUGIN_ROOT||process.env.PLUGIN_ROOT;if(!r)throw Error('missing plugin root');import(pathToFileURL(join(r,'hooks/plugin-entry.mjs')).href).then(m=>m.run('stop'))\"",
+            "timeout": 120,
+            "statusMessage": "验证语义基线与变更依据"
+          }
+        ]
+      }
+    ]
+  }
+}

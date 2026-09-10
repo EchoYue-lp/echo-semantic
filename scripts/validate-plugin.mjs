@@ -33,6 +33,23 @@ function json(relativePath) {
 }
 
 const packageJson = json("package.json");
+if (!packageJson.files?.includes(".echo-semantic/baseline.md")) {
+  fail("package.json 必须发布 .echo-semantic/ 长期语义材料");
+}
+if (!existsSync(resolve(root, ".echo-semantic", "baseline.md"))) {
+  fail("缺少 .echo-semantic/baseline.md");
+}
+if (existsSync(resolve(root, "semantic"))) {
+  fail("不得保留旧 semantic/ 目录");
+}
+for (const legacyHook of [
+  "hooks/hooks-codex.json",
+  "hooks/hooks-claude.json",
+]) {
+  if (existsSync(resolve(root, legacyHook))) {
+    fail(`不得保留旧宿主 Hook 投影：${legacyHook}`);
+  }
+}
 const manifests = [
   ".codex-plugin/plugin.json",
   ".cursor-plugin/plugin.json",
@@ -92,8 +109,7 @@ if (
 }
 
 for (const path of [
-  "hooks/hooks-claude.json",
-  "hooks/hooks-codex.json",
+  "hooks/hooks.json",
   "hooks/hooks-cursor.json",
   ".agents/plugins/marketplace.json",
   ".claude-plugin/marketplace.json",

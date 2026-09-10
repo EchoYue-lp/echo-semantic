@@ -4,7 +4,7 @@ id: map.host-distribution
 kind: capability_map
 title: Codex、Cursor 与 Claude Code 分发
 risk: medium
-observed_at: source:bf04c0d2e6d1a8f73f691650b75a8d5d2b46656f799d3e88f9336e2da3b72091
+observed_at: source:7b4e1815e613f10bdab16d5c80943ed37c7428855ed8b4c8496577a51eabf8c4
 boundary_refs: [boundary.host-distribution]
 behavior_refs: [behavior.multi-host-installation]
 rule_refs: [rule.single-semantic-authority]
@@ -40,11 +40,11 @@ scenarios:
 
 ## 行为关系
 
-Codex 和 Claude Code 使用原生 marketplace；Cursor 使用用户本地插件链接。
+Codex 和 Claude Code 从按发布白名单生成的用户级分发副本使用原生 marketplace；Cursor 使用用户本地插件链接。
 
 ## 状态与数据流
 
-安装状态保存在用户目录，只记录本插件拥有的注册项和路径。
+安装状态保存在用户目录，只记录本插件拥有的注册项和路径。分发副本是可覆盖、可删除的安装投影，不保存项目语义事实。
 
 ## 策略来源与优先级
 

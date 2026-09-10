@@ -4,7 +4,7 @@ id: baseline.repository
 kind: baseline
 source_snapshot:
   base_revision: efd7c18252b749d0d1b399bfbf449bf081e69e8c
-  content_digest: bf04c0d2e6d1a8f73f691650b75a8d5d2b46656f799d3e88f9336e2da3b72091
+  content_digest: 7b4e1815e613f10bdab16d5c80943ed37c7428855ed8b4c8496577a51eabf8c4
 inventory_closure: closed
 behavior_model_closure: open
 map_refs:
@@ -23,6 +23,8 @@ regions:
   - path: .github
     status: supporting
   - path: .gitignore
+    status: supporting
+  - path: .npmignore
     status: supporting
   - path: AGENTS.md
     status: supporting

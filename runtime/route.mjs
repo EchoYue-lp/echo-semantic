@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { resolve, extname } from "node:path";
+import { dirname, extname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { loadCapabilities } from "./capabilities/load.mjs";
@@ -13,6 +14,17 @@ import {
 } from "./project-state.mjs";
 
 const pluginId = "echo-semantic";
+const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const pluginVersion = JSON.parse(
+  readFileSync(resolve(pluginRoot, "package.json"), "utf8"),
+).version;
+const hookEvidenceLifetimeMs = 24 * 60 * 60 * 1000;
+const hookEvents = {
+  "session-start": "sessionStart",
+  "pre-edit": "preEdit",
+  "pre-compact": "preCompact",
+  stop: "stop",
+};
 
 function git(root, args) {
   const result = spawnSync("git", ["-C", root, ...args], {
@@ -35,8 +47,9 @@ function statePath(root) {
   return projectStatePath(root, "route.json");
 }
 
-function changedPaths(root) {
-  const status = gitStatus(root);
+function changedPaths(root, suppliedStatus = undefined) {
+  const status =
+    suppliedStatus === undefined ? gitStatus(root) : suppliedStatus;
   if (!status) return [];
   return status
     .split("\n")
@@ -69,10 +82,12 @@ function classify(paths) {
     ".exs",
   ]);
   const control =
-    /^(?:hooks|runtime|scripts|bin|semantic)(?:\/|$)|^\.github\/workflows(?:\/|$)|^action\.ya?ml$/i;
+    /^(?:hooks|runtime|scripts|bin|\.echo-semantic)(?:\/|$)|^\.github\/workflows(?:\/|$)|^action\.ya?ml$/i;
+  const lowRiskSource = /^(?:tests|test|examples)(?:\/|$)/i;
   for (const path of paths) {
     const suffix = extname(path).toLowerCase();
     if (control.test(path)) high.push({ path, reason: "governance-control" });
+    else if (lowRiskSource.test(path)) continue;
     else if (protocol.test(path)) high.push({ path, reason: "protocol" });
     else if (migration.test(path)) high.push({ path, reason: "migration" });
     else if (source.has(suffix)) {
@@ -99,12 +114,43 @@ function writeState(root, value) {
   writeProjectJson(root, "route.json", value);
 }
 
+function currentHookEvidence(previous, host, runtimeProbe, now) {
+  if (
+    previous?.schemaVersion !== 1 ||
+    previous?.pluginId !== pluginId ||
+    previous?.host !== host ||
+    !previous?.hookEvidence ||
+    typeof previous.hookEvidence !== "object" ||
+    Array.isArray(previous.hookEvidence)
+  )
+    return {};
+  const hostVersion = runtimeProbe?.version ?? null;
+  const evidence = {};
+  for (const [name, value] of Object.entries(previous.hookEvidence)) {
+    const observedAt = Date.parse(value?.observedAt);
+    const age = now.getTime() - observedAt;
+    if (
+      Object.values(hookEvents).includes(name) &&
+      value?.pluginVersion === pluginVersion &&
+      (value?.hostVersion ?? null) === hostVersion &&
+      Number.isFinite(observedAt) &&
+      age >= 0 &&
+      age <= hookEvidenceLifetimeMs
+    ) {
+      evidence[name] = value;
+    }
+  }
+  return evidence;
+}
+
 export function computeRoute(
   root,
   host = "unknown",
   event = "manual",
-  { probe = probeHost } = {},
+  { probe = probeHost, observedEvent = null, now = () => new Date() } = {},
 ) {
+  root = resolve(git(root, ["rev-parse", "--show-toplevel"]) || root);
+  const previous = readRoute(root);
   const capabilities = loadCapabilities(host);
   let runtimeProbe = null;
   try {
@@ -113,13 +159,32 @@ export function computeRoute(
     runtimeProbe = { detected: false, error: error.message };
   }
   const baseline = existsSync(resolve(root, ".echo-semantic/baseline.md"));
-  const paths = changedPaths(root);
+  const headRevision = git(root, ["rev-parse", "HEAD"]);
+  const worktreeStatus = gitStatus(root);
+  const paths = changedPaths(root, worktreeStatus);
   const high = classify(paths);
+  const currentTime = now();
+  const hookEvidence = currentHookEvidence(
+    previous,
+    host,
+    runtimeProbe,
+    currentTime,
+  );
+  const observedKey = hookEvents[observedEvent];
+  if (observedKey) {
+    hookEvidence[observedKey] = {
+      observedAt: currentTime.toISOString(),
+      pluginVersion,
+      hostVersion: runtimeProbe?.version ?? null,
+    };
+  }
+  const stopVerified = Boolean(hookEvidence.stop);
   const conservative =
     capabilities.host === "unknown" ||
     capabilities.hooks.stop !== true ||
     capabilities.skills === "unsupported" ||
-    runtimeProbe?.detected !== true;
+    runtimeProbe?.detected !== true ||
+    !stopVerified;
   let route = "idle";
   let skills = [];
   if (!baseline) {
@@ -151,24 +216,29 @@ export function computeRoute(
     schemaVersion: 1,
     pluginId,
     repositoryRoot: root,
+    headRevision,
+    worktreeDigest:
+      worktreeStatus === null
+        ? null
+        : createHash("sha256").update(worktreeStatus).digest("hex"),
     host,
     event,
     route,
     skills,
     changedPaths: paths,
     highRiskPaths: high,
+    hookEvidence,
     enforcement: {
       preEdit:
-        runtimeProbe?.detected === true &&
-        capabilities.hooks.preToolUse === true,
-      stop: runtimeProbe?.detected === true && capabilities.hooks.stop === true,
+        Boolean(hookEvidence.preEdit) && capabilities.hooks.preToolUse === true,
+      stop: stopVerified && capabilities.hooks.stop === true,
       continuation:
-        runtimeProbe?.detected === true &&
+        Boolean(hookEvidence.preCompact) &&
         capabilities.lifecycle.compact !== "unsupported",
     },
     capabilities,
     runtimeProbe,
-    updatedAt: new Date().toISOString(),
+    updatedAt: currentTime.toISOString(),
   };
   writeState(root, state);
   writeVisibleStatus(root, {
@@ -178,9 +248,11 @@ export function computeRoute(
     route,
     next: skills,
     message:
-      runtimeProbe?.detected === true
-        ? "路由已计算"
-        : "宿主运行时未确认，采用保守路径",
+      runtimeProbe?.detected !== true
+        ? "宿主安装状态未确认，采用保守路径"
+        : stopVerified
+          ? "路由已计算，停止 Hook 具有新鲜事件证据"
+          : "停止 Hook 尚无新鲜事件证据，采用保守路径",
   });
   return state;
 }

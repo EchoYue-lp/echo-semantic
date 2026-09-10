@@ -8,10 +8,11 @@ risk: high
 primary_focus: state_authority
 focus: [trigger_input, contract_evidence]
 boundary: boundary.semantic-workflow
-observed_at: source:bf04c0d2e6d1a8f73f691650b75a8d5d2b46656f799d3e88f9336e2da3b72091
+observed_at: source:7b4e1815e613f10bdab16d5c80943ed37c7428855ed8b4c8496577a51eabf8c4
 code_refs:
   - skills/semantic-preflight/SKILL.md#机器记录
   - skills/semantic-preflight/scripts/preflight.py#def record
+  - scripts/preflight_contract.py#validate_preflight
 rule_refs: [rule.single-semantic-authority, rule.high-risk-evidence]
 evidence_refs: [evidence.semantic-workflow]
 finding_refs: []
@@ -25,7 +26,7 @@ finding_refs: []
 
 ## 当前行为
 
-Skill 完成语义判断，脚本将结构化结果写入 `.echo-semantic/preflight.json` 并拒绝不完整的高风险声明。
+Skill 完成语义判断，脚本将结构化结果写入 `.echo-semantic/preflight.json` 并拒绝不完整的高风险声明；读取时重新核对语义对象存在性和 design/ADR 当前摘要。
 
 ## 期望行为
 
@@ -37,7 +38,7 @@ Skill 完成语义判断，脚本将结构化结果写入 `.echo-semantic/prefli
 
 ## 失败、重试与恢复
 
-输入不完整或权威文件不存在时返回非零；补齐事实后重新记录会原子替换旧状态。
+输入不完整、语义对象不存在、权威文件不存在或设计摘要变化时返回非零；补齐事实后重新记录会原子替换旧状态。
 
 ## 证据
 

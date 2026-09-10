@@ -53,7 +53,8 @@ node runtime/route.mjs \
   --event manual
 ```
 
-输出包含 `route`、`skills`、`changedPaths`、`highRiskPaths`、`enforcement`、静态 `capabilities` 和本次 `runtimeProbe`。
+输出包含 `route`、`skills`、`changedPaths`、`highRiskPaths`、`enforcement`、静态 `capabilities`、安装探测 `runtimeProbe` 和真实事件
+`hookEvidence`。手工运行路由不会伪造 Hook 事件证据；Stop 尚无新鲜证据时保持 `bootstrap`。
 路由结果同时写入目标仓库 `.echo-semantic/route.json`，并更新 `status.md` 和 `status.json`。
 
 ## 语义状态

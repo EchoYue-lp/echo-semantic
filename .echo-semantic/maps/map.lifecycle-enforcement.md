@@ -4,7 +4,7 @@ id: map.lifecycle-enforcement
 kind: capability_map
 title: 生命周期 Hook 与确定性门禁
 risk: high
-observed_at: source:bf04c0d2e6d1a8f73f691650b75a8d5d2b46656f799d3e88f9336e2da3b72091
+observed_at: source:7b4e1815e613f10bdab16d5c80943ed37c7428855ed8b4c8496577a51eabf8c4
 boundary_refs: [boundary.lifecycle-enforcement]
 behavior_refs: [behavior.post-change-verification]
 rule_refs: [rule.high-risk-evidence, rule.engineering-tools-own-style]
@@ -13,6 +13,14 @@ finding_refs: []
 audit_refs: []
 related_map_refs: [map.semantic-workflow, map.host-distribution]
 scenarios:
+  native-plugin-hooks:
+    status: mapped
+    source_refs: [hooks/hooks.json#SessionStart, hooks/plugin-entry.mjs#function run]
+    evidence_refs: [evidence.lifecycle-hooks]
+  verified-hook-enforcement:
+    status: mapped
+    source_refs: [runtime/route.mjs#currentHookEvidence]
+    evidence_refs: [evidence.lifecycle-hooks]
   session-start:
     status: mapped
     source_refs: [hooks/entry.mjs#sessionContext]
@@ -45,7 +53,7 @@ scenarios:
 
 ## 入口与输出
 
-宿主 Hook 输入被统一转换为上下文、允许或拒绝结果；Action 返回标准退出码。
+Codex 与 Claude Code 从 `hooks/hooks.json` 原生发现 Hook 并保留插件来源，Cursor 使用专用映射；宿主输入统一转换为上下文、允许或拒绝结果，Action 返回标准退出码。
 
 ## 行为关系
 
@@ -53,7 +61,7 @@ Claude Code 与 Cursor 的编辑前 Hook 提供实时阻断，Codex 在 Stop 时
 
 ## 状态与数据流
 
-Hook 只读取项目语义材料和 Git 私有预检状态；继续包位于同一 .echo-semantic 目录，带仓库、分支和证据摘要校验，不建立业务数据库。
+Hook 只读取项目语义材料和当前任务预检；继续包和真实 Hook 事件证据位于同一 `.echo-semantic/` 目录，分别绑定证据摘要以及宿主/插件版本与时间窗，不建立业务数据库。
 
 ## 策略来源与优先级
 
@@ -61,7 +69,7 @@ Hook 只读取项目语义材料和 Git 私有预检状态；继续包位于同�
 
 ## 生命周期与失败路径
 
-校验器不可用、摘要漂移、引用失效、越界修改和缺少高风险依据都会返回非零；继续包失效只丢弃恢复上下文，不放宽编辑或 Stop 门禁。
+校验器不可用、摘要漂移、引用失效、越界修改和缺少高风险依据都会返回非零；继续包失效只丢弃恢复上下文。宿主仅被检测到但没有对应真实 Hook 事件证据时，路由保持 `bootstrap` 且 `enforcement` 为 false。
 
 ## 权限与敏感信息
 

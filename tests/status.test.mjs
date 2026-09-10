@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import { writeContinuation } from "../runtime/continuation.mjs";
+import { computeRoute } from "../runtime/route.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const script = resolve(root, "skills/semantic-status/scripts/status.py");
@@ -85,6 +92,9 @@ test("semantic-status 输出基线、路由和 Frontier", () => {
     open: ["semantic-verify"],
     evidenceRefs: [".echo-semantic/baseline.md"],
   });
+  computeRoute(repository, "codex", "status-test", {
+    probe: () => ({ detected: true, version: "test" }),
+  });
   const result = spawnSync("uv", ["run", script, "--root", repository], {
     encoding: "utf8",
   });
@@ -93,9 +103,50 @@ test("semantic-status 输出基线、路由和 Frontier", () => {
   assert.equal(value.baseline.present, true);
   assert.equal(value.baseline.inventoryClosure, "closed");
   assert.equal(value.continuation.trusted, true);
+  assert.equal(value.route.trusted, true);
+  assert.equal(value.visibleStatus.trusted, true);
   assert.ok(Array.isArray(value.next));
 
   const routePath = resolve(repository, ".echo-semantic/route.json");
+  const forgedEnforcement = JSON.parse(readFileSync(routePath, "utf8"));
+  forgedEnforcement.enforcement.stop = true;
+  writeFileSync(routePath, JSON.stringify(forgedEnforcement), "utf8");
+  const forged = spawnSync("uv", ["run", script, "--root", repository], {
+    encoding: "utf8",
+  });
+  assert.equal(forged.status, 0, forged.stderr);
+  const forgedValue = JSON.parse(forged.stdout);
+  assert.equal(forgedValue.route.trusted, false);
+  assert.match(forgedValue.route.reasons.join("、"), /Hook 事件证据不一致/);
+  computeRoute(repository, "codex", "status-test", {
+    probe: () => ({ detected: true, version: "test" }),
+  });
+
+  const preflightPath = resolve(repository, ".echo-semantic/preflight.json");
+  writeFileSync(preflightPath, '{"schemaVersion":1}\n', "utf8");
+  const malformedPreflight = spawnSync(
+    "uv",
+    ["run", script, "--root", repository],
+    { encoding: "utf8" },
+  );
+  assert.equal(malformedPreflight.status, 0, malformedPreflight.stderr);
+  const malformedPreflightValue = JSON.parse(malformedPreflight.stdout);
+  assert.equal(malformedPreflightValue.preflight.valid, false);
+  assert.match(
+    malformedPreflightValue.preflight.reasons.join("、"),
+    /reuse|verifications/,
+  );
+  rmSync(preflightPath);
+
+  writeFileSync(resolve(repository, "change.txt"), "change\n", "utf8");
+  const changed = spawnSync("uv", ["run", script, "--root", repository], {
+    encoding: "utf8",
+  });
+  assert.equal(changed.status, 0, changed.stderr);
+  const changedValue = JSON.parse(changed.stdout);
+  assert.equal(changedValue.route.trusted, false);
+  assert.match(changedValue.route.reasons.join("、"), /工作树已变化/);
+
   mkdirSync(resolve(routePath, ".."), { recursive: true });
   writeFileSync(routePath, JSON.stringify({ route: "strict" }), "utf8");
   const malformedRoute = spawnSync(

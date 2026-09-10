@@ -12,9 +12,11 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
+sys.dont_write_bytecode = True
 PLUGIN_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 from governance_contract import AuthorityError, validate_design_authority
+from preflight_contract import validate_preflight
 
 PLUGIN_ID = "echo-semantic"
 PROJECT_STATE_DIRECTORY = ".echo-semantic"
@@ -54,7 +56,40 @@ def repository_root(value: str) -> Path:
 
 
 def state_path(root: Path) -> Path:
-    return (root / PROJECT_STATE_DIRECTORY / "preflight.json").resolve()
+    directory = root / PROJECT_STATE_DIRECTORY
+    if (directory.exists() or directory.is_symlink()) and (
+        directory.is_symlink() or not directory.is_dir()
+    ):
+        raise PreflightError(f"Echo Semantic 项目目录必须是普通目录：{directory}")
+    return directory / "preflight.json"
+
+
+def ensure_state_directory(root: Path) -> Path:
+    directory = root / PROJECT_STATE_DIRECTORY
+    if directory.exists() or directory.is_symlink():
+        if directory.is_symlink() or not directory.is_dir():
+            raise PreflightError(f"Echo Semantic 项目目录必须是普通目录：{directory}")
+    else:
+        directory.mkdir(parents=True)
+    tracked = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(root),
+            "ls-files",
+            "--error-unmatch",
+            "--",
+            f"{PROJECT_STATE_DIRECTORY}/preflight.json",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if tracked.returncode == 0:
+        raise PreflightError(
+            f"运行态文件不能被 Git 跟踪：{PROJECT_STATE_DIRECTORY}/preflight.json"
+        )
+    return directory
 
 
 def migrate_legacy_state(root: Path) -> None:
@@ -67,6 +102,10 @@ def migrate_legacy_state(root: Path) -> None:
         legacy = root / legacy
     target = root / PROJECT_STATE_DIRECTORY
     try:
+        if (target.exists() or target.is_symlink()) and (
+            target.is_symlink() or not target.is_dir()
+        ):
+            raise PreflightError(f"Echo Semantic 项目目录必须是普通目录：{target}")
         if legacy.resolve() == target.resolve() or not legacy.is_dir():
             return
         target.mkdir(parents=True, exist_ok=True)
@@ -85,16 +124,16 @@ def ensure_state_ignored(root: Path) -> None:
     migrate_legacy_state(root)
     try:
         raw = run_git(root, "rev-parse", "--git-path", "info/exclude")
-    except PreflightError:
-        return
+    except PreflightError as error:
+        raise PreflightError("无法定位 .git/info/exclude") from error
     path = Path(raw)
     if not path.is_absolute():
         path = root / path
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         current = path.read_text(encoding="utf-8") if path.exists() else ""
-    except (OSError, UnicodeError):
-        return
+    except (OSError, UnicodeError) as error:
+        raise PreflightError(f"无法读取 .git/info/exclude：{error}") from error
     markers = [f"/{PROJECT_STATE_DIRECTORY}/{name}" for name in RUNTIME_STATE_FILES]
     lines = set(current.splitlines())
     missing = [marker for marker in markers if marker not in lines]
@@ -108,8 +147,8 @@ def ensure_state_ignored(root: Path) -> None:
             + "\n",
             encoding="utf-8",
         )
-    except (OSError, UnicodeError):
-        return
+    except (OSError, UnicodeError) as error:
+        raise PreflightError(f"无法写入 .git/info/exclude：{error}") from error
 
 
 def normalize_path(root: Path, value: str) -> str:
@@ -216,8 +255,16 @@ def record(args: argparse.Namespace) -> int:
         "boundaryDecision": boundary_decision,
         "designAuthorities": authorities,
     }
+    contract_errors = validate_preflight(
+        payload,
+        root,
+        current_head=str(payload["baseRevision"]),
+    )
+    if contract_errors:
+        raise PreflightError("；".join(contract_errors))
     destination = state_path(root)
     ensure_state_ignored(root)
+    ensure_state_directory(root)
     write_atomic(destination, payload)
     print(f"语义预检已记录：{destination}")
     return 0
@@ -233,6 +280,13 @@ def load_state(root: Path) -> tuple[Path, dict[str, object]]:
         raise PreflightError(f"无法读取语义预检记录：{error}") from error
     if not isinstance(data, dict) or data.get("schemaVersion") != SCHEMA_VERSION:
         raise PreflightError("语义预检记录版本无效")
+    contract_errors = validate_preflight(
+        data,
+        root,
+        current_head=run_git(root, "rev-parse", "HEAD"),
+    )
+    if contract_errors:
+        raise PreflightError("语义预检记录不满足合同：" + "；".join(contract_errors))
     return path, data
 
 

@@ -11,3 +11,6 @@
 
 `inventory_closure` 只表达当前路径与风险视角是否已有去向；`behavior_model_closure` 只表达能力场景是否已经充分展开。
 两者都不表示插件没有缺陷。
+
+本目录中的长期 Markdown 材料用于约束 Echo Semantic 自身开发，必须随代码提交 GitHub。仅根级 `status.md`、`status.json`、
+`preflight.json`、`route.json`、`continuation.json` 是可丢弃运行态，由 `.git/info/exclude` 精确排除，不得提交。

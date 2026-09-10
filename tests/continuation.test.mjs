@@ -43,11 +43,28 @@ test("PreCompact 保存继续包，resume 只恢复仍可信的任务", () => {
     statePath,
     JSON.stringify({
       schemaVersion: 1,
+      pluginId: "echo-semantic",
       repositoryRoot: realpathSync(repository),
       baseRevision: head,
       recordedAt: new Date().toISOString(),
       taskId: "task-continuation-test",
+      kind: "bugfix",
+      risk: "low",
       allowedPaths: ["src"],
+      reuse: ["复用现有能力"],
+      verifications: ["定向测试"],
+      basis: [],
+      semanticRefs: [],
+      signals: {
+        publicApi: false,
+        newStateAuthority: false,
+        newProtocol: false,
+        crossServiceMigration: false,
+        architectureChange: false,
+        unknownProductionCode: false,
+      },
+      boundaryDecision: { createsNew: false, reason: "复用现有边界" },
+      designAuthorities: [],
     }),
     "utf8",
   );
@@ -61,6 +78,11 @@ test("PreCompact 保存继续包，resume 只恢复仍可信的任务", () => {
     encoding: "utf8",
   });
   assert.equal(checkpoint.status, 0, checkpoint.stderr);
+  const visible = JSON.parse(
+    readFileSync(resolve(repository, ".echo-semantic/status.json"), "utf8"),
+  );
+  assert.equal(visible.state, "ready");
+  assert.equal(visible.event, "pre-compact");
   const continuationPath = resolve(
     repository,
     ".echo-semantic/continuation.json",
@@ -105,4 +127,22 @@ test("PreCompact 保存继续包，resume 只恢复仍可信的任务", () => {
     JSON.parse(stale.stdout).hookSpecificOutput.additionalContext,
     /任务继续包/,
   );
+});
+
+test("PreCompact 缺少有效预检时写入 stale 终态", () => {
+  const repository = mkdtempSync(
+    resolve(tmpdir(), "echo-semantic-continuation-stale-"),
+  );
+  git(repository, "init", "-q");
+  const result = spawnSync("node", [hook, "codex", "pre-compact"], {
+    cwd: repository,
+    input: JSON.stringify({ cwd: repository }),
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const visible = JSON.parse(
+    readFileSync(resolve(repository, ".echo-semantic/status.json"), "utf8"),
+  );
+  assert.equal(visible.state, "stale");
+  assert.deepEqual(visible.next, ["semantic-preflight"]);
 });

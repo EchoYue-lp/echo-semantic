@@ -4,7 +4,9 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -50,10 +52,12 @@ test("项目状态统一写入 .echo-semantic 并自动从 Git 状态排除", ()
     assert.equal(existsSync(projectStatePath(repository, name)), true);
   }
   assert.equal(visible.state, "ready");
-  assert.match(
-    readFileSync(projectStatePath(repository, "status.md"), "utf8"),
-    /状态：已就绪/,
+  const statusMarkdown = readFileSync(
+    projectStatePath(repository, "status.md"),
+    "utf8",
   );
+  assert.match(statusMarkdown, /状态：已就绪/);
+  assert.match(statusMarkdown, new RegExp(`状态版本：${visible.revision}`));
   assert.match(
     readFileSync(projectStatePath(repository, "status.md"), "utf8"),
     /semantic-audit -> semantic-verify/,
@@ -122,4 +126,71 @@ test("首次使用时迁移旧 Git 私有状态且不覆盖新目录文件", () 
     true,
   );
   assert.equal(existsSync(resolve(legacy, "preflight.json")), false);
+});
+
+test("拒绝通过符号链接写出项目目录", () => {
+  const repository = mkdtempSync(
+    resolve(tmpdir(), "echo-semantic-state-symlink-"),
+  );
+  const outside = mkdtempSync(
+    resolve(tmpdir(), "echo-semantic-state-outside-"),
+  );
+  git(repository, "init", "-q");
+  const legacy = resolve(
+    repository,
+    git(repository, "rev-parse", "--git-path", "echo-semantic"),
+  );
+  mkdirSync(legacy, { recursive: true });
+  writeFileSync(resolve(legacy, "preflight.json"), '{"legacy":true}\n', "utf8");
+  symlinkSync(outside, resolve(repository, ".echo-semantic"), "dir");
+  assert.throws(
+    () => writeVisibleStatus(repository, { state: "working", host: "codex" }),
+    /必须是普通目录/,
+  );
+  assert.equal(existsSync(resolve(outside, "status.json")), false);
+  assert.equal(existsSync(resolve(outside, "preflight.json")), false);
+  assert.equal(existsSync(resolve(legacy, "preflight.json")), true);
+});
+
+test("拒绝覆盖已被 Git 跟踪的运行态文件", () => {
+  const repository = mkdtempSync(
+    resolve(tmpdir(), "echo-semantic-state-tracked-"),
+  );
+  git(repository, "init", "-q");
+  mkdirSync(resolve(repository, ".echo-semantic"));
+  writeFileSync(
+    resolve(repository, ".echo-semantic/status.json"),
+    "{}\n",
+    "utf8",
+  );
+  git(repository, "add", "-f", ".echo-semantic/status.json");
+  assert.throws(
+    () => writeVisibleStatus(repository, { state: "working", host: "codex" }),
+    /不能被 Git 跟踪/,
+  );
+  assert.equal(
+    readFileSync(resolve(repository, ".echo-semantic/status.json"), "utf8"),
+    "{}\n",
+  );
+});
+
+test("无法写入精确排除规则时拒绝创建运行态", () => {
+  const repository = mkdtempSync(
+    resolve(tmpdir(), "echo-semantic-state-exclude-"),
+  );
+  git(repository, "init", "-q");
+  const exclude = resolve(
+    repository,
+    git(repository, "rev-parse", "--git-path", "info/exclude"),
+  );
+  rmSync(exclude, { force: true });
+  mkdirSync(exclude);
+  assert.throws(
+    () => writeProjectJson(repository, "route.json", { schemaVersion: 1 }),
+    /无法把 Echo Semantic 运行态加入/,
+  );
+  assert.equal(
+    existsSync(resolve(repository, ".echo-semantic/route.json")),
+    false,
+  );
 });

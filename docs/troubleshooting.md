@@ -74,13 +74,16 @@ Skill 是模型可见指导，不是无条件函数调用。先确认：
 
 宿主版本、配置、项目信任和事件支持都会影响 Hook。按 [宿主支持](host-support.md) 区分静态清单、安装可见、入口可执行和真实生命周期证据。
 
-Codex 当前重点检查：
+Codex 的插件详情页应显示 Echo Semantic 的“钩子”区块，Hook 设置页应把对应条目归入“来自插件 / Echo Semantic”。也可以检查：
 
 ```bash
-cat ~/.codex/hooks.json
+codex plugin list --json
+test -f ~/.echo-semantic/distribution/hooks/hooks.json
 ```
 
-应存在带 `echo-semantic` 标记的 SessionStart、PreCompact 和 Stop。Codex 当前没有稳定的编辑前 Hook，不应期待每次写文件前阻断。
+若 Hook 仍出现在“用户配置”，它来自旧版本写入的 `~/.codex/hooks.json`。重新运行 `node bin/install.mjs install codex` 会在
+保留其它用户 Hook 的前提下清理旧投影，并从插件内 `hooks/hooks.json` 重新安装。Codex 当前没有稳定的编辑前工具名覆盖，
+不应仅依靠 PreToolUse 保证每次写文件前阻断。
 
 ## “当前任务没有语义预检记录”
 

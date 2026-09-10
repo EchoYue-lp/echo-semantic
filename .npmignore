@@ -1,0 +1,7 @@
+.echo-semantic/status.md
+.echo-semantic/status.json
+.echo-semantic/preflight.json
+.echo-semantic/route.json
+.echo-semantic/continuation.json
+**/__pycache__/
+**/*.pyc

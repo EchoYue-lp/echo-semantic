@@ -2,11 +2,13 @@
 schema_version: 1
 id: evidence.semantic-workflow
 kind: evidence
-observed_at: source:bf04c0d2e6d1a8f73f691650b75a8d5d2b46656f799d3e88f9336e2da3b72091
+observed_at: source:7b4e1815e613f10bdab16d5c80943ed37c7428855ed8b4c8496577a51eabf8c4
 source_refs:
   - skills/semantic-contract/SKILL.md#语义材料合同
   - skills/semantic-contract/references/semantic-artifact-contract.md#语义材料合同
   - scripts/governance_contract.py#validate_design_authority
+  - scripts/preflight_contract.py#validate_preflight
+  - tests/preflight-contract.test.mjs#Node 与 Python 共享预检合同 fixture
   - skills/semantic-preflight/SKILL.md#预检
   - skills/semantic-discover/SKILL.md#完成条件
   - agents/semantic-capability-reviewer.md#能力闭合复核
@@ -26,8 +28,8 @@ limitations:
 
 ## 支持的结论
 
-八个入口职责分离，生成前预检、状态 Frontier、发现、差异、审查、裁决和验证围绕同一对象合同协作；预检和 CI 共享正式
-design/ADR 解析合同，压缩恢复只携带短期任务线索。
+八个入口职责分离，生成前预检、状态 Frontier、发现、差异、审查、裁决和验证围绕同一对象合同协作；预检、Hook、状态视图和 CI
+共享对象存在性与正式 design/ADR 摘要合同，压缩恢复只携带短期任务线索。
 
 ## 来源与范围
 

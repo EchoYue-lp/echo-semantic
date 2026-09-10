@@ -13,7 +13,7 @@
 | 编辑前路径检查 | 当前未稳定覆盖              | `preToolUse`                 | `PreToolUse`                 |
 | PreCompact     | 降级支持，需真实会话验证    | 降级支持，需真实窗口验证     | 支持，需登录会话验证         |
 | Stop           | 支持                        | 支持                         | 支持                         |
-| 安装方式       | CLI + 用户 Hook/Agent 投影  | 本地插件链接                 | Marketplace CLI              |
+| 安装方式       | CLI + 原生 Hook/Agent 投影  | 本地插件链接                 | Marketplace CLI              |
 
 该表中的“支持”首先表示项目具有对应适配代码和静态合同，不自动等于当前用户机器已经触发真实生命周期事件。
 
@@ -48,11 +48,15 @@ node bin/install.mjs install codex
 安装器会：
 
 1. 删除当前 `echo-semantic` 和旧 ID 的插件、marketplace 注册；
-2. 从当前仓库重新添加 marketplace；
+2. 按 npm 发布白名单覆盖生成 `~/.echo-semantic/distribution/`，再从该目录添加 marketplace；
 3. 安装 `echo-semantic@echo-semantic`；
 4. 把三个只读 Agent 投影到 `~/.codex/agents/`；
-5. 合并 SessionStart、PreCompact、Stop 到 `~/.codex/hooks.json`；
-6. 写入 `~/.echo-semantic/install-state.json`。
+5. 由 Codex 从插件内 `hooks/hooks.json` 发现 SessionStart、PreCompact、PreToolUse 和 Stop；
+6. 清理旧版本留在 `~/.codex/hooks.json` 的 Echo Semantic 用户级 Hook；
+7. 写入 `~/.echo-semantic/install-state.json`。
+
+原生 Hook 使用宿主提供的 `PLUGIN_ROOT` 定位安装缓存，所以会在 Hook 设置和插件详情中归属于 Echo Semantic。安装器只读取
+`~/.codex/hooks.json` 以清理旧版本投影；若该文件无法解析，会拒绝修改并保留原文件，不会覆盖其它 Hook。
 
 验证：
 
@@ -88,18 +92,19 @@ node bin/install.mjs install cursor
 node bin/install.mjs install claude-code
 ```
 
-安装器通过 Claude Code Marketplace CLI 删除当前和旧 ID，再安装 `echo-semantic@echo-semantic`。安装后新建会话，并确保 CLI 已登录。
+安装器通过 Claude Code Marketplace CLI 删除当前和旧 ID，再安装 `echo-semantic@echo-semantic`。Claude Code 与 Codex 共用
+插件内 `hooks/hooks.json`，入口根据 `CLAUDE_PLUGIN_ROOT` / `PLUGIN_ROOT` 选择宿主输出。安装后新建会话，并确保 CLI 已登录。
 
 Claude Code 使用 `SessionStart`、`PreToolUse`、`PreCompact` 和 `Stop`。编辑前只匹配 `Edit|Write`，不会拦截只读工具。
 
 ## 共享事件映射
 
-| 共享语义 | Codex          | Cursor         | Claude Code              |
-| -------- | -------------- | -------------- | ------------------------ | ------ |
-| 会话开始 | `SessionStart` | `sessionStart` | `SessionStart`           |
-| 编辑前   | 暂无稳定覆盖   | `preToolUse`   | `PreToolUse`，匹配 `Edit | Write` |
-| 压缩前   | `PreCompact`   | `preCompact`   | `PreCompact`             |
-| 停止前   | `Stop`         | `stop`         | `Stop`                   |
+| 共享语义 | Codex          | Cursor         | Claude Code                    |
+| -------- | -------------- | -------------- | ------------------------------ |
+| 会话开始 | `SessionStart` | `sessionStart` | `SessionStart`                 |
+| 编辑前   | 暂无稳定覆盖   | `preToolUse`   | `PreToolUse`，匹配 `Edit|Write` |
+| 压缩前   | `PreCompact`   | `preCompact`   | `PreCompact`                   |
+| 停止前   | `Stop`         | `stop`         | `Stop`                         |
 
 宿主输出也不同：Cursor 使用 `additional_context`，Codex 和 Claude Code 使用 `hookSpecificOutput.additionalContext`。适配差异不得进入语义 Skill 正文。
 
@@ -114,9 +119,10 @@ npm run probe
 - `detected`：是否找到宿主命令或安装目录；
 - `version`：可用时读取 `--version`；
 - `skills`、`agents`、`hooks`：静态能力合同；
-- `lifecycle.*.probe`：`passed`、`blocked` 或 `live-session-required`。
+- `lifecycle.*.probe`：`blocked` 或 `live-session-required`。
 
-`passed` 目前只用于宿主启动探测。resume、compact 等必须保留 `live-session-required`，直到取得真实事件证据。
+检测到命令或安装目录时仍返回 `live-session-required`，不会伪装成 Hook 已执行。真实事件写入路由的 `hookEvidence`，并按宿主版本、
+插件版本和 24 小时时间窗校验；每项 `enforcement` 只由对应事件证据启用。
 
 ## 新增宿主
 

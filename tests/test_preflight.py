@@ -1,4 +1,6 @@
 import json
+import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -54,6 +56,14 @@ class PreflightTest(unittest.TestCase):
             ["python3", str(SCRIPT), *args], capture_output=True, text=True, check=False
         )
 
+    def write_semantic_rule(self) -> None:
+        rule = self.repository / ".echo-semantic/rules/rule.state-authority.md"
+        rule.parent.mkdir(parents=True, exist_ok=True)
+        rule.write_text(
+            "---\nid: rule.state-authority\nkind: rule\n---\n",
+            encoding="utf-8",
+        )
+
     def test_records_low_risk_contract_in_project_state_directory(self) -> None:
         result = self.run_script(
             "record",
@@ -103,6 +113,83 @@ class PreflightTest(unittest.TestCase):
         )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--basis", result.stderr)
+
+    def test_high_risk_rejects_missing_semantic_object(self) -> None:
+        result = self.run_script(
+            "record",
+            "--root",
+            str(self.repository),
+            "--kind",
+            "contract",
+            "--risk",
+            "high",
+            "--allow",
+            "src",
+            "--reuse",
+            "复用现有接口",
+            "--verify",
+            "cargo test",
+            "--basis",
+            "公共接口变化",
+            "--semantic-ref",
+            "rule.missing",
+            "--public-api",
+            "--reuse-existing-boundary",
+            "扩展现有契约边界",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("引用不存在语义对象", result.stderr)
+
+    def test_rejects_symlinked_project_state_directory(self) -> None:
+        outside = self.repository.parent / f"{self.repository.name}-outside"
+        outside.mkdir()
+        os.symlink(outside, self.repository / ".echo-semantic")
+        result = self.run_script(
+            "record",
+            "--root",
+            str(self.repository),
+            "--kind",
+            "bugfix",
+            "--risk",
+            "low",
+            "--allow",
+            "src",
+            "--reuse",
+            "复用现有解析器",
+            "--verify",
+            "cargo test parser",
+            "--reuse-existing-boundary",
+            "扩展现有解析边界",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("必须是普通目录", result.stderr)
+        self.assertFalse((outside / "preflight.json").exists())
+
+    def test_rejects_unwritable_exclude_contract(self) -> None:
+        exclude = self.repository / ".git" / "info" / "exclude"
+        exclude.unlink()
+        exclude.mkdir()
+        result = self.run_script(
+            "record",
+            "--root",
+            str(self.repository),
+            "--kind",
+            "bugfix",
+            "--risk",
+            "low",
+            "--allow",
+            "src",
+            "--reuse",
+            "复用现有解析器",
+            "--verify",
+            "cargo test parser",
+            "--reuse-existing-boundary",
+            "扩展现有解析边界",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("无法读取 .git/info/exclude", result.stderr)
+        self.assertFalse((self.repository / ".echo-semantic/preflight.json").exists())
+        shutil.rmtree(exclude)
 
     def test_architecture_change_requires_existing_authority(self) -> None:
         result = self.run_script(
@@ -159,6 +246,7 @@ class PreflightTest(unittest.TestCase):
         self.assertIn("不是正式 design/ADR", result.stderr)
 
     def test_formal_adr_is_bound_by_content_digest(self) -> None:
+        self.write_semantic_rule()
         adr = self.repository / "docs" / "adr" / "0001-test.md"
         adr.parent.mkdir(parents=True)
         adr.write_text(

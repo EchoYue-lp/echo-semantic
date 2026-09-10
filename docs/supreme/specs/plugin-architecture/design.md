@@ -125,11 +125,11 @@ echo-semantic/
 ├── .claude-plugin/             # Claude Code 插件与 Marketplace 清单
 ├── agents/                     # 三个只读语义 Agent
 ├── bin/                        # 多宿主安装与卸载入口
-├── hooks/                      # 三端事件配置和共享 Hook 入口
+├── hooks/                      # Codex/Claude 原生 Hook、Cursor 映射和共享入口
 ├── runtime/                    # 能力探测、风险路由和任务继续包
 ├── skills/                     # 八个语义 Skill 真理源
 ├── scripts/                    # 插件与设计合同校验
-├── .echo-semantic/                   # 插件自身的语义基线
+├── .echo-semantic/             # 插件自身的语义基线
 ├── tests/                      # Node 与 Python 回归测试
 ├── docs/                       # 用户文档、设计和 ADR
 ├── action.yml                  # 可复用 GitHub Action
@@ -140,7 +140,7 @@ echo-semantic/
 
 | 组件       | 主要路径                                                           | 职责                                                     | 不拥有的内容                 |
 | ---------- | ------------------------------------------------------------------ | -------------------------------------------------------- | ---------------------------- |
-| 插件清单   | `.codex-plugin/`、`.cursor-plugin/`、`.claude-plugin/`、`.agents/` | 声明插件 ID、展示信息、Skill、Agent 和 Hook 入口         | 业务语义和路由策略           |
+| 插件清单   | `.codex-plugin/`、`.cursor-plugin/`、`.claude-plugin/`、`.agents/` | 声明插件 ID、展示信息和 Skill/Agent 入口                 | 业务语义和路由策略           |
 | 安装器     | `bin/install.mjs`                                                  | 检测宿主、按渠道安装/卸载、覆盖当前版本、清理旧 ID 投影  | 事务协调和业务状态           |
 | Hook 入口  | `hooks/entry.mjs`                                                  | 统一解析三端事件，接入路由、编辑范围、压缩恢复和停止验证 | 语义判断和长期材料写入       |
 | 能力矩阵   | `runtime/capabilities/`                                            | 保存静态宿主能力合同并探测当前安装与版本                 | 真实会话已经成功的结论       |
@@ -158,15 +158,20 @@ echo-semantic/
 | ------------------------------------- | ----------------------------------------- | -------------------------------- | ---------------- | ------------------------------ |
 | Capability、Behavior、Rule 等长期事实 | `.echo-semantic/`                         | 随 Git 版本演进                  | 项目语义唯一权威 | 摘要、引用或关系失效即阻断验证 |
 | 产品与架构决策                        | 项目 design/ADR                           | 随 Git 版本演进                  | 产品和架构权威   | 内容摘要变化后重新绑定         |
-| 用户可见状态                          | `.echo-semantic/status.md`、`status.json` | 每个生命周期事件更新             | 用户可见运行投影 | 与 JSON 同次原子更新           |
+| 用户可见状态                          | `.echo-semantic/status.md`、`status.json` | 每个生命周期事件更新             | 用户可见运行投影 | 共享 revision 检测中断不一致  |
 | 任务预检                              | `.echo-semantic/preflight.json`           | 最长 24 小时、绑定当前 HEAD      | 当前任务写入合同 | 过期、仓库或 HEAD 不匹配即无效 |
-| 风险路由                              | `.echo-semantic/route.json`               | 每次 SessionStart 或显式计算刷新 | 可丢弃计算结果   | 结构或时间无效时重新计算       |
+| 风险路由                              | `.echo-semantic/route.json`               | 每次 SessionStart 或显式计算刷新 | 可丢弃计算结果   | HEAD、工作树摘要或时间失效时重新计算 |
 | 任务继续包                            | `.echo-semantic/continuation.json`        | 最长 7 天、绑定任务/分支/证据    | 可丢弃恢复线索   | 任一证据摘要变化即忽略         |
 | 安装状态                              | `~/.echo-semantic/install-state.json`     | 用户级安装期间                   | 安装器记录       | 全部卸载后删除                 |
+| 原生宿主分发副本                      | `~/.echo-semantic/distribution/`          | Codex 或 Claude Code 已安装期间  | 可覆盖安装投影   | 最后一个原生渠道卸载后删除     |
 | 宿主注册与缓存                        | Codex、Cursor、Claude Code 用户目录       | 由宿主管理                       | 安装投影         | 重装覆盖，卸载撤回             |
 | 工程验证结果                          | 项目工具与 CI                             | 每次变更重新产生                 | 实现质量权威     | 任何失败均不得以语义材料替代   |
 
 `.echo-semantic/` 是唯一项目目录；长期语义 Markdown 提交 Git，5 个运行态文件由 `.git/info/exclude` 排除。删除运行态文件最多要求重新预检、重新路由或丢失恢复提示。
+
+用户目录中的 `distribution/` 只是按发布白名单生成的插件安装副本，不保存项目事实，也不是第二套语义权威。
+
+目录本身必须是项目根下的普通目录，不能是符号链接；5 个运行态文件不得被 Git 跟踪。违反任一条件时写入失败，避免把运行态写到项目外或污染提交。插件发布包必须包含 `.echo-semantic/` 的长期语义材料。
 
 ## 主工作流
 
@@ -205,7 +210,7 @@ flowchart TD
 flowchart TD
   Start[读取项目与宿主] --> HasBaseline{存在 .echo-semantic/baseline.md?}
   HasBaseline -- 否 --> Bootstrap[bootstrap]
-  HasBaseline -- 是 --> HostReady{宿主已探测且 Stop / Skill 可用?}
+  HasBaseline -- 是 --> HostReady{宿主已探测、Skill 可用且 Stop 有新鲜事件证据?}
   HostReady -- 否 --> Bootstrap
   HostReady -- 是 --> Changed{存在工作树变化?}
   Changed -- 否 --> Idle[idle]
@@ -218,13 +223,15 @@ flowchart TD
 
 | 路由        | 进入条件                                       | 推荐入口                                                | 必要收口                                           |
 | ----------- | ---------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------- |
-| `bootstrap` | 无基线，或宿主探测/关键能力不可用              | `semantic-discover` 或 `semantic-preflight`             | `semantic-verify`                                  |
+| `bootstrap` | 无基线、宿主/关键能力不可用，或 Stop 无新鲜事件证据 | `semantic-discover` 或 `semantic-preflight`             | `semantic-verify`                                  |
 | `idle`      | 有基线且工作树无变化                           | `semantic-preflight`                                    | 新任务开始前重新记录预检                           |
 | `fast`      | 只有文档、配置、测试、示例等低风险路径         | `semantic-preflight`                                    | 工程验证和 `semantic-verify`                       |
 | `standard`  | 有变化但未命中高风险路径，且不全是快速路径     | `semantic-preflight`、`semantic-diff`                   | `semantic-verify`                                  |
 | `strict`    | 生产源码、未知源码、协议、迁移或治理控制面变化 | `semantic-preflight`、`semantic-diff`、`semantic-audit` | 高风险依据、设计权威、工程验证和 `semantic-verify` |
 
-静态能力矩阵只描述宿主声明能力。本次 `runtimeProbe` 未确认宿主存在时，路由必须进入 `bootstrap`，不能把静态清单当作真实运行证据。
+静态能力矩阵只描述宿主声明能力，`runtimeProbe.detected` 也只描述安装存在。只有宿主真实触发的 Hook 才写入 `hookEvidence`；证据绑定
+宿主、宿主版本、插件版本和 24 小时时间窗。Stop 没有新鲜事件证据时路由必须进入 `bootstrap`，对应 `enforcement` 也不能置真。
+路由状态同时绑定计算时的 HEAD 和 Git porcelain 工作树摘要；任一变化都会使 `semantic-status` 将旧路由标为不可信。
 
 ## 状态流转
 
@@ -402,9 +409,10 @@ sequenceDiagram
   else 显式渠道但宿主未安装
     Detect-->>Installer: manual_action
   else 宿主存在
+    Installer->>State: 覆盖生成干净分发副本
     Installer->>Host: 删除 echo-semantic 与旧 ID 注册
-    Installer->>Host: 添加 marketplace 和插件
-    Installer->>Projection: 覆盖当前 Hook、Agent 或 Cursor 链接
+    Installer->>Host: 从分发副本添加 marketplace 和插件
+    Installer->>Projection: 安装原生 Hook、覆盖 Agent 或 Cursor 链接并清理旧用户 Hook
     Installer->>State: 写入该渠道 installed 状态
     Installer-->>User: installed
   end
@@ -412,7 +420,7 @@ sequenceDiagram
   User->>Installer: uninstall <channel | all>
   Installer->>Host: 删除当前与旧 ID 注册
   Installer->>Projection: 删除本插件投影
-  Installer->>State: 删除渠道状态；为空时删除目录
+  Installer->>State: 删除渠道状态；最后一个原生渠道卸载后删除分发副本
   Installer-->>User: removed
 ```
 
@@ -433,11 +441,14 @@ sequenceDiagram
 | ------------------------------------- | ----------------------------------------- | ---------------------------- |
 | 当前目录不是 Git 仓库                 | Hook 返回空结果，不创建项目状态           | 不适用                       |
 | 项目没有 `.echo-semantic/baseline.md` | 路由为 `bootstrap`；Stop 不阻断未采用项目 | 不建立伪基线                 |
-| 宿主未探测到或关键能力未知            | 路由为 `bootstrap`                        | 否，最终依赖显式 Skill 和 CI |
+| 宿主未探测到、关键能力未知或 Stop 无新鲜事件证据 | 路由为 `bootstrap`                        | 否，最终依赖显式 Skill 和 CI |
 | 预检缺失、过期、HEAD 不匹配           | 编辑前或 Stop 返回阻断原因                | 否                           |
 | 编辑路径超出 `allowedPaths`           | 支持 PreToolUse 的宿主立即阻断            | 否                           |
 | Codex 缺少稳定 PreToolUse             | 不做虚假即时阻断声明                      | 否，由 Stop 和 CI 收口       |
 | 继续包损坏、过期或证据变化            | 忽略恢复包并重新判断 Frontier             | 否                           |
+| `.echo-semantic/` 是符号链接          | 拒绝写入运行态                            | 否                           |
+| 运行态文件已被 Git 跟踪               | 拒绝覆盖并要求解除跟踪                    | 否                           |
+| `.git/info/exclude` 无法安全更新      | 拒绝创建运行态                            | 否                           |
 | 校验器或 `uv` 不可用                  | Stop 失败并保留预检                       | 否                           |
 | 语义摘要、源码引用或路径分类失效      | `semantic-verify` 和 CI 失败              | 否                           |
 | 一个宿主安装失败                      | 返回该宿主 `failed`，保留其它宿主结果     | 不影响其它渠道               |
@@ -481,6 +492,7 @@ Skill 适合语义判断，Hook 适合生命周期接线，脚本和 CI 适合�
 - 继续包只记录路径引用和摘要，不记录文件正文、完整对话、密钥或工具输出；
 - 三个专用 Agent 以只读模式投影；
 - 安装器只撤回当前插件 ID 和显式旧 ID 的注册与路径，不扫描删除其它插件内容。
+- Codex 与 Claude Code 从 `hooks/hooks.json` 原生发现 Hook，并使用宿主注入的插件根路径；安装器不新增用户级 Hook，只清理旧版本投影。已有用户 Hook 配置无法解析时拒绝安装或卸载并保留原文件。
 
 ## 验收标准
 

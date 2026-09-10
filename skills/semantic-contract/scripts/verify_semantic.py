@@ -16,15 +16,16 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Iterable
-from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
 
+sys.dont_write_bytecode = True
 PLUGIN_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 from governance_contract import AuthorityError, validate_design_authority
+from preflight_contract import validate_preflight
 
 SCHEMA_VERSION = 1
 PLUGIN_ID = "echo-semantic"
@@ -1169,31 +1170,8 @@ def validate_change_evidence(
     )
     declared: dict[str, Any] = {}
     if preflight is not None:
-        if preflight.get("repositoryRoot") != str(root.resolve()):
-            add_error(errors, semantic_root, "预检状态属于另一个仓库")
-        if preflight.get("baseRevision") != base:
-            add_error(errors, semantic_root, "预检基准与变更基准不一致")
-        recorded_at = preflight.get("recordedAt")
-        try:
-            timestamp = datetime.fromisoformat(str(recorded_at))
-            if timestamp.tzinfo is None:
-                raise ValueError("缺少时区")
-            if datetime.now(timezone.utc) - timestamp.astimezone(
-                timezone.utc
-            ) > timedelta(hours=24):
-                add_error(errors, semantic_root, "语义预检记录已超过 24 小时")
-        except (TypeError, ValueError):
-            add_error(errors, semantic_root, "语义预检 recordedAt 无效")
-        if not isinstance(preflight.get("taskId"), str) or not preflight.get("taskId"):
-            add_error(errors, semantic_root, "语义预检缺少 taskId")
-        boundary_decision = preflight.get("boundaryDecision")
-        if (
-            not isinstance(boundary_decision, dict)
-            or not isinstance(boundary_decision.get("createsNew"), bool)
-            or not isinstance(boundary_decision.get("reason"), str)
-            or not boundary_decision.get("reason")
-        ):
-            add_error(errors, semantic_root, "语义预检缺少有效边界结论")
+        for issue in validate_preflight(preflight, root, expected_base=base):
+            add_error(errors, semantic_root, f"语义预检合同无效：{issue}")
         for relative in code_paths:
             if not allowed_path(relative, preflight.get("allowedPaths")):
                 add_error(errors, semantic_root, f"变化超出预检允许路径：{relative}")
@@ -1207,14 +1185,9 @@ def validate_change_evidence(
                 add_error(
                     errors, semantic_root, f"预检未声明机器识别的高风险信号：{signal}"
                 )
-        if any(inferred.values()) or any(bool(value) for value in declared.values()):
-            if preflight.get("risk") != "high":
-                add_error(errors, semantic_root, "高风险变化的预检 risk 必须是 high")
-            if not preflight.get("basis") or not preflight.get("semanticRefs"):
-                add_error(errors, semantic_root, "高风险变化缺少依据或语义对象引用")
-            for ref in preflight.get("semanticRefs", []):
-                if ref not in objects:
-                    add_error(errors, semantic_root, f"预检引用不存在语义对象：{ref}")
+        for ref in preflight.get("semanticRefs", []):
+            if ref not in objects:
+                add_error(errors, semantic_root, f"预检引用不存在语义对象：{ref}")
 
     high_risk = bool(high_paths) or any(bool(value) for value in declared.values())
     if not high_risk:
@@ -1290,6 +1263,16 @@ def validate_repository(
 ) -> list[str]:
     errors: list[str] = []
     semantic_root = root / SEMANTIC_DIRECTORY
+    tracked_runtime = str(
+        run_git(
+            root,
+            "ls-files",
+            "--",
+            *[f"{SEMANTIC_DIRECTORY}/{name}" for name in sorted(RUNTIME_STATE_FILES)],
+        )
+    ).splitlines()
+    for relative in tracked_runtime:
+        add_error(errors, root / relative, "运行态文件不能被 Git 跟踪")
     documents = collect_documents(semantic_root, errors)
     for path, kind, data, body in documents:
         validate_common(path, kind, data, body, errors)

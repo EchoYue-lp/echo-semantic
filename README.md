@@ -127,7 +127,7 @@ flowchart TD
 
 | 宿主        | Skill    | Agent     | 编辑前检查     | PreCompact | Stop | 安装方式        |
 | ----------- | -------- | --------- | -------------- | ---------- | ---- | --------------- |
-| Codex       | manifest | TOML 投影 | 当前未稳定覆盖 | 降级支持   | 支持 | CLI + 用户投影  |
+| Codex       | manifest | TOML 投影 | 当前未稳定覆盖 | 降级支持   | 支持 | CLI + 原生 Hook |
 | Cursor      | manifest | 原生目录  | `preToolUse`   | 降级支持   | 支持 | 本地插件链接    |
 | Claude Code | manifest | 原生插件  | `PreToolUse`   | 支持       | 支持 | Marketplace CLI |
 
@@ -151,8 +151,10 @@ node bin/install.mjs install cursor
 node bin/install.mjs install claude-code
 ```
 
-安装器优先调用宿主原生插件命令；Cursor 使用其本地插件目录。安装时会覆盖本插件对应的宿主安装内容，结果记录在
-`~/.echo-semantic/install-state.json`，卸载只撤回该状态中由本插件拥有的路径和注册项：
+安装器优先调用宿主原生插件命令；Cursor 使用其本地插件目录。Codex 与 Claude Code 安装前会按发布白名单覆盖生成
+`~/.echo-semantic/distribution/`，避免把当前项目运行态或开发缓存带入宿主。安装结果记录在
+`~/.echo-semantic/install-state.json`，卸载只撤回该状态中由本插件拥有的路径和注册项；最后一个使用分发副本的渠道卸载后，
+分发副本也会删除：
 
 ```bash
 node bin/install.mjs uninstall all
@@ -167,7 +169,8 @@ node bin/install.mjs uninstall all
 npm run probe
 ```
 
-Codex 与 Claude Code 安装后需要新建会话。Cursor 安装后需要重新加载窗口。Hook 是否运行仍受宿主版本、项目信任和
+Codex 与 Claude Code 从插件约定路径 `hooks/hooks.json` 发现同一组原生 Hook，因此设置页和插件详情可以显示来源归属；
+安装后需要新建会话。Cursor 安装后需要重新加载窗口。Hook 是否运行仍受宿主版本、项目信任和
 本地策略控制，因此仓库合并约束必须同时接入 CI。
 
 ## 项目采用
@@ -180,7 +183,7 @@ Codex 与 Claude Code 安装后需要新建会话。Cursor 安装后需要重新
 
 生成前预检状态写入同一个 `.echo-semantic/`，由 `.git/info/exclude` 只排除运行态文件；长期语义材料继续提交版本控制。
 
-会话开始时插件运行 `runtime/route.mjs`，先调用宿主运行时探测，再按当前项目和宿主能力选择 `bootstrap`、`fast`、`standard`、`strict` 或 `idle` 路由；
+会话开始时插件运行 `runtime/route.mjs`，先区分安装探测与真实 Hook 事件证据，再按当前项目和已验证宿主能力选择 `bootstrap`、`fast`、`standard`、`strict` 或 `idle` 路由；Stop 尚无新鲜事件证据时保持 `bootstrap`；
 需要查看完整状态时调用 `semantic-status`：
 
 ```bash
