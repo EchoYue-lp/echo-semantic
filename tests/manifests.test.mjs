@@ -12,6 +12,8 @@ function readJson(path) {
 test("三个宿主清单共享插件名称和版本", () => {
   const packageJson = readJson("package.json");
   assert.equal(packageJson.name, "echo-semantic");
+  assert.equal(packageJson.version, "0.1.0");
+  assert.doesNotMatch(packageJson.version, /\+codex\./);
   assert.ok(packageJson.files.includes(".echo-semantic/baseline.md"));
   for (const path of [
     ".codex-plugin/plugin.json",
@@ -23,6 +25,12 @@ test("三个宿主清单共享插件名称和版本", () => {
     assert.equal(manifest.version, packageJson.version);
     assert.equal(manifest.description, "Coding Agent 语义预检与持续质量门禁");
   }
+  const claudeMarketplace = readJson(".claude-plugin/marketplace.json");
+  const claudeEntry = claudeMarketplace.plugins.find(
+    (entry) => entry.name === packageJson.name,
+  );
+  assert.equal(claudeEntry.version, packageJson.version);
+  assert.doesNotMatch(claudeEntry.version, /\+codex\./);
   assert.equal(
     readJson(".codex-plugin/plugin.json").interface.displayName,
     "Echo Semantic",
