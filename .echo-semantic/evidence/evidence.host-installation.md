@@ -2,13 +2,14 @@
 schema_version: 1
 id: evidence.host-installation
 kind: evidence
-observed_at: source:7b4e1815e613f10bdab16d5c80943ed37c7428855ed8b4c8496577a51eabf8c4
+observed_at: source:175cefcc6dc6426a09103b7f6f98bc1fad160a2e6e5586a525d17d4ecf0ea7c2
 source_refs:
   - bin/install.mjs#installCodex
   - bin/install.mjs#installClaude
   - bin/install.mjs#installCursor
   - bin/install.mjs#function stageDistribution
   - scripts/validate-package.mjs#分发包内容校验通过
+  - scripts/validate-plugin.mjs#Claude marketplace version 与 package.json 不一致
   - tests/installer.test.mjs#Cursor 单渠道安装、覆盖和卸载
   - tests/installer.test.mjs#Codex 重命名安装清理旧 Hook、Agent 和状态
   - tests/installer.test.mjs#分发 staging 失败时保留现有副本

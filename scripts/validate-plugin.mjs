@@ -55,6 +55,7 @@ const manifests = [
   ".cursor-plugin/plugin.json",
   ".claude-plugin/plugin.json",
 ].map((path) => [path, json(path)]);
+const claudeMarketplace = json(".claude-plugin/marketplace.json");
 
 for (const [path, manifest] of manifests) {
   if (manifest.name !== expectedId) fail(`${path} name 不一致`);
@@ -62,6 +63,14 @@ for (const [path, manifest] of manifests) {
 }
 if (manifests[0][1].hooks !== undefined) {
   fail("Codex plugin.json 不得声明当前第三方 schema 不接受的 hooks 字段");
+}
+const claudeEntry = claudeMarketplace.plugins?.find(
+  (entry) => entry?.name === expectedId,
+);
+if (!claudeEntry) {
+  fail("Claude marketplace 缺少 echo-semantic 条目");
+} else if (claudeEntry.version !== packageJson.version) {
+  fail("Claude marketplace version 与 package.json 不一致");
 }
 
 const skillRoot = resolve(root, "skills");
@@ -112,7 +121,6 @@ for (const path of [
   "hooks/hooks.json",
   "hooks/hooks-cursor.json",
   ".agents/plugins/marketplace.json",
-  ".claude-plugin/marketplace.json",
 ]) {
   json(path);
 }

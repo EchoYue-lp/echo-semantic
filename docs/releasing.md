@@ -4,9 +4,10 @@
 
 ## 版本策略
 
-- 公共发布使用语义化版本，例如 `0.1.0`；
-- `+codex.<timestamp>` 是本地开发 cachebuster，不创建 Git tag，也不作为公开版本号；
+- 当前项目版本为 `0.1.0`，正式提交和 tag 使用不带开发后缀的语义化版本；
+- `+codex.<timestamp>` 只允许作为本地未提交的 Codex 开发 cachebuster；提交、PR 和发布前必须恢复为目标正式版本；
 - `.codex-plugin/plugin.json`、`.cursor-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json` 和 `package.json` 必须保持版本一致；
+- 每个正式版本必须在 `CHANGELOG.md` 记录 Codex 稳定性、用户可感知变化、合同或迁移影响、验证边界和已知限制；
 - 插件 ID、状态 schema、语义合同或安装布局发生不兼容变化时，必须记录迁移和旧路径退出。
 
 ## 发布前检查
