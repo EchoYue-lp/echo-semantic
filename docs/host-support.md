@@ -12,8 +12,8 @@
 | SessionStart   | 支持                        | 支持                         | 支持                         |
 | 编辑前路径检查 | 当前未稳定覆盖              | `preToolUse`                 | `PreToolUse`                 |
 | PreCompact     | 降级支持，需真实会话验证    | 降级支持，需真实窗口验证     | 支持，需登录会话验证         |
-| Stop           | 支持                        | 支持                         | 支持                         |
-| 安装方式       | CLI + 原生 Hook/Agent 投影  | 本地插件链接                 | Marketplace CLI              |
+| Stop           | 支持                        | 降级为 `followup_message`    | 支持                         |
+| 安装方式       | CLI + 原生 Hook/Agent 投影  | 本地实目录镜像               | Marketplace CLI              |
 
 该表中的“支持”首先表示项目具有对应适配代码和静态合同，不自动等于当前用户机器已经触发真实生命周期事件。
 
@@ -75,14 +75,21 @@ Codex 当前没有稳定的编辑前 Hook，因此不会声称可以在每次写
 node bin/install.mjs install cursor
 ```
 
-安装器将当前仓库链接到：
+安装器按 npm 发布白名单把插件复制到：
 
 ```text
 ~/.cursor/plugins/local/echo-semantic
 ```
 
+目标必须是普通目录。当前 Cursor 会拒绝符号链接指向 `~/.cursor/plugins/local` 之外的仓库，日志类似：
+
+```text
+loadUserLocalPlugin echo-semantic rejected: symlink target ... is outside .../plugins/local
+```
+
 安装后重新加载 Cursor 窗口。Cursor 使用 `sessionStart`、`preToolUse`、`preCompact` 和 `stop` 事件；字段名与 Claude Code 不同，
-但都进入 `hooks/entry.mjs` 的共享逻辑。
+但都进入 `hooks/entry.mjs` 的共享逻辑。`preToolUse` 失败返回 `permission: "deny"`；`stop` 不能阻断会话结束，失败时用
+`followup_message` 拉回校验，最终阻断仍由 `preToolUse` 和 CI 负责。
 
 ## Claude Code
 
@@ -104,7 +111,7 @@ Claude Code 使用 `SessionStart`、`PreToolUse`、`PreCompact` 和 `Stop`。编
 | 会话开始 | `SessionStart` | `sessionStart` | `SessionStart`                 |
 | 编辑前   | 暂无稳定覆盖   | `preToolUse`   | `PreToolUse`，匹配 `Edit|Write` |
 | 压缩前   | `PreCompact`   | `preCompact`   | `PreCompact`                   |
-| 停止前   | `Stop`         | `stop`         | `Stop`                         |
+| 停止前   | `Stop`         | `stop`（followup） | `Stop`                         |
 
 宿主输出也不同：Cursor 使用 `additional_context`，Codex 和 Claude Code 使用 `hookSpecificOutput.additionalContext`。适配差异不得进入语义 Skill 正文。
 

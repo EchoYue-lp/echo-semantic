@@ -69,6 +69,19 @@ test("SessionStart 为不同宿主输出对应上下文字段", () => {
     JSON.parse(claude.stdout).hookSpecificOutput.additionalContext,
     /semantic-verify/,
   );
+  const codex = spawnSync("node", [hook, "codex", "session-start"], {
+    input: "{}",
+    encoding: "utf8",
+  });
+  assert.equal(codex.status, 0);
+  assert.match(
+    JSON.parse(codex.stdout).hookSpecificOutput.additionalContext,
+    /semantic-preflight/,
+  );
+  assert.equal(
+    JSON.parse(codex.stdout).hookSpecificOutput.hookEventName,
+    "SessionStart",
+  );
 });
 
 test("SessionStart 在项目根生成用户可见状态", () => {
@@ -124,7 +137,7 @@ test("已采用语义基线的项目阻断预检范围外编辑", () => {
     encoding: "utf8",
   });
   assert.equal(allowed.status, 0);
-  assert.deepEqual(JSON.parse(allowed.stdout), {});
+  assert.deepEqual(JSON.parse(allowed.stdout), { permission: "allow" });
 
   const denied = spawnSync("node", [hook, "cursor", "pre-edit"], {
     cwd: repository,
@@ -133,6 +146,10 @@ test("已采用语义基线的项目阻断预检范围外编辑", () => {
   });
   assert.equal(denied.status, 2);
   assert.match(denied.stderr, /超出/);
+  const deniedPayload = JSON.parse(denied.stdout);
+  assert.equal(deniedPayload.permission, "deny");
+  assert.match(deniedPayload.agent_message, /超出/);
+  assert.match(deniedPayload.user_message, /超出/);
 
   const malformedState = preflightState(
     repository,
@@ -221,6 +238,66 @@ test("设计权威摘要变化后 Hook 拒绝沿用高风险预检", () => {
   assert.match(result.stderr, /没有当前任务的有效 semantic-preflight/);
 });
 
+test("Cursor 按官方工具名识别写入路径，并放行只读工具", () => {
+  const repository = mkdtempSync(
+    resolve(tmpdir(), "echo-semantic-cursor-tool-"),
+  );
+  git(repository, "init", "-q");
+  mkdirSync(resolve(repository, ".echo-semantic"));
+  writeFileSync(
+    resolve(repository, ".echo-semantic/baseline.md"),
+    "baseline\n",
+    "utf8",
+  );
+  git(repository, "config", "user.email", "test@example.com");
+  git(repository, "config", "user.name", "Test");
+  git(repository, "add", ".echo-semantic/baseline.md");
+  git(repository, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
+  const head = git(repository, "rev-parse", "HEAD");
+  writeFileSync(
+    resolve(repository, ".echo-semantic/preflight.json"),
+    JSON.stringify(
+      preflightState(repository, head, "task-cursor-tool", ["src"]),
+    ),
+    "utf8",
+  );
+  const write = spawnSync("node", [hook, "cursor", "pre-edit"], {
+    cwd: repository,
+    input: JSON.stringify({
+      cwd: repository,
+      tool_name: "Write",
+      tool_input: { path: "src/lib.rs" },
+    }),
+    encoding: "utf8",
+  });
+  assert.equal(write.status, 0, write.stderr);
+  assert.deepEqual(JSON.parse(write.stdout), { permission: "allow" });
+
+  const denied = spawnSync("node", [hook, "cursor", "pre-edit"], {
+    cwd: repository,
+    input: JSON.stringify({
+      cwd: repository,
+      tool_name: "StrReplace",
+      tool_input: { path: "docs/readme.md" },
+    }),
+    encoding: "utf8",
+  });
+  assert.equal(denied.status, 2);
+  assert.equal(JSON.parse(denied.stdout).permission, "deny");
+
+  const read = spawnSync("node", [hook, "cursor", "pre-edit"], {
+    cwd: repository,
+    input: JSON.stringify({
+      cwd: repository,
+      tool_name: "Read",
+      tool_input: { path: "docs/readme.md" },
+    }),
+    encoding: "utf8",
+  });
+  assert.equal(read.status, 0, read.stderr);
+  assert.deepEqual(JSON.parse(read.stdout), { permission: "allow" });
+});
+
 test("失败 Stop 不被去重且保留预检供连续重试", () => {
   const repository = mkdtempSync(resolve(tmpdir(), "echo-semantic-stop-"));
   git(repository, "init", "-q");
@@ -251,10 +328,29 @@ test("失败 Stop 不被去重且保留预检供连续重试", () => {
       input: JSON.stringify({ cwd: repository, stop_hook_active: true }),
       encoding: "utf8",
     });
-    assert.equal(result.status, 2);
-    assert.match(result.stderr, /语义完成门禁未通过/);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      JSON.parse(result.stdout).followup_message,
+      /语义完成门禁未通过/,
+    );
     assert.equal(readFileSync(state, "utf8").includes("task-stop-test"), true);
   }
+  const claude = spawnSync("node", [hook, "claude-code", "stop"], {
+    cwd: repository,
+    input: JSON.stringify({ cwd: repository, stop_hook_active: true }),
+    encoding: "utf8",
+  });
+  assert.equal(claude.status, 2);
+  assert.match(claude.stderr, /语义完成门禁未通过/);
+  assert.equal(JSON.parse(claude.stdout).decision, "block");
+  const codex = spawnSync("node", [hook, "codex", "stop"], {
+    cwd: repository,
+    input: JSON.stringify({ cwd: repository, stop_hook_active: true }),
+    encoding: "utf8",
+  });
+  assert.equal(codex.status, 2);
+  assert.equal(JSON.parse(codex.stdout).decision, "block");
+  assert.match(JSON.parse(codex.stdout).reason, /语义完成门禁未通过/);
 });
 
 test("明确的新会话清除上一任务的预检状态", () => {

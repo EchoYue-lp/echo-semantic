@@ -3,12 +3,11 @@ import {
   chmodSync,
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
-  readlinkSync,
-  realpathSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -19,6 +18,32 @@ import test from "node:test";
 
 const root = resolve(import.meta.dirname, "..");
 const installer = resolve(root, "bin/install.mjs");
+
+function copyPluginSource(dest, description) {
+  const packed = spawnSync("npm", ["pack", "--dry-run", "--json"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  assert.equal(packed.status, 0, packed.stderr);
+  for (const entry of JSON.parse(packed.stdout).at(0).files) {
+    const relativePath = entry.path;
+    const target = resolve(dest, relativePath);
+    mkdirSync(dirname(target), { recursive: true });
+    cpSync(resolve(root, relativePath), target);
+  }
+  const manifest = resolve(dest, ".cursor-plugin/plugin.json");
+  const data = JSON.parse(readFileSync(manifest, "utf8"));
+  data.description = description;
+  writeFileSync(manifest, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+function assertCursorMirror(target) {
+  const stat = lstatSync(target);
+  assert.equal(stat.isDirectory(), true);
+  assert.equal(stat.isSymbolicLink(), false);
+  assert.equal(existsSync(resolve(target, ".cursor-plugin/plugin.json")), true);
+  assert.equal(existsSync(resolve(target, ".git")), false);
+}
 
 test("Cursor 单渠道安装、覆盖和卸载", () => {
   const home = mkdtempSync(resolve(tmpdir(), "echo-semantic-install-"));
@@ -43,7 +68,7 @@ test("Cursor 单渠道安装、覆盖和卸载", () => {
     env,
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(resolve(target, "..", readlinkSync(target)), root);
+  assertCursorMirror(target);
   assert.equal(existsSync(legacyTarget), false);
   assert.equal(existsSync(dirname(legacyState)), false);
 
@@ -52,7 +77,7 @@ test("Cursor 单渠道安装、覆盖和卸载", () => {
     env,
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(resolve(target, "..", readlinkSync(target)), root);
+  assertCursorMirror(target);
 
   result = spawnSync("node", [installer, "uninstall", "cursor"], {
     encoding: "utf8",
@@ -69,10 +94,8 @@ test("跨克隆安装直接覆盖当前渠道，不需要来源迁移", () => {
   const first = resolve(directory, "first");
   const second = resolve(directory, "second");
   mkdirSync(resolve(home, ".cursor/plugins/local"), { recursive: true });
-  for (const source of [first, second]) {
-    mkdirSync(resolve(source, "bin"), { recursive: true });
-    cpSync(installer, resolve(source, "bin/install.mjs"));
-  }
+  copyPluginSource(first, "first-clone");
+  copyPluginSource(second, "second-clone");
   const env = { ...process.env, HOME: home };
   const target = resolve(home, ".cursor/plugins/local/echo-semantic");
   let result = spawnSync(
@@ -84,6 +107,12 @@ test("跨克隆安装直接覆盖当前渠道，不需要来源迁移", () => {
     },
   );
   assert.equal(result.status, 0, result.stderr);
+  assert.equal(
+    JSON.parse(
+      readFileSync(resolve(target, ".cursor-plugin/plugin.json"), "utf8"),
+    ).description,
+    "first-clone",
+  );
   result = spawnSync(
     "node",
     [resolve(second, "bin/install.mjs"), "install", "cursor"],
@@ -93,9 +122,12 @@ test("跨克隆安装直接覆盖当前渠道，不需要来源迁移", () => {
     },
   );
   assert.equal(result.status, 0, result.stderr);
+  assertCursorMirror(target);
   assert.equal(
-    resolve(target, "..", readlinkSync(target)),
-    realpathSync(second),
+    JSON.parse(
+      readFileSync(resolve(target, ".cursor-plugin/plugin.json"), "utf8"),
+    ).description,
+    "second-clone",
   );
 });
 

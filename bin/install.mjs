@@ -9,7 +9,6 @@ import {
   readdirSync,
   renameSync,
   rmSync,
-  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -184,8 +183,7 @@ function readCodexHooks() {
   return current;
 }
 
-function stageDistribution(dryRun) {
-  if (dryRun) return distributionRoot;
+function packedRelativePaths() {
   const npm = commandPath("npm");
   if (!npm) throw new InstallError("没有检测到 npm，无法生成插件分发目录");
   const packed = run(npm, ["pack", "--dry-run", "--json"], false, {
@@ -200,37 +198,59 @@ function stageDistribution(dryRun) {
   const files = entries?.at(0)?.files;
   if (!Array.isArray(files) || files.length === 0)
     throw new InstallError("npm pack 没有返回可安装文件");
+  return files.map((entry) => {
+    const relativePath = entry?.path?.replaceAll("\\", "/");
+    if (
+      typeof relativePath !== "string" ||
+      !relativePath ||
+      relativePath.startsWith("/") ||
+      /^[A-Za-z]:\//.test(relativePath) ||
+      relativePath.split("/").includes("..")
+    ) {
+      throw new InstallError(`npm pack 返回不安全路径：${relativePath}`);
+    }
+    return relativePath;
+  });
+}
 
+function copyPackedFiles(destination) {
+  mkdirSync(destination, { recursive: true });
+  for (const relativePath of packedRelativePaths()) {
+    const source = resolve(pluginRoot, relativePath);
+    const target = resolve(destination, relativePath);
+    mkdirSync(dirname(target), { recursive: true });
+    cpSync(source, target, { dereference: true });
+  }
+}
+
+function requirePackedFiles(destination, files, label) {
+  for (const required of files) {
+    if (!existsSync(resolve(destination, required)))
+      throw new InstallError(`${label}缺少必需文件：${required}`);
+  }
+  const stat = lstatSync(destination);
+  if (!stat.isDirectory() || stat.isSymbolicLink())
+    throw new InstallError(`${label}必须是普通目录：${destination}`);
+}
+
+function stageDistribution(dryRun) {
+  if (dryRun) return distributionRoot;
   mkdirSync(stateRoot, { recursive: true });
   const pending = join(stateRoot, `.distribution.${process.pid}.pending`);
   const previous = join(stateRoot, `.distribution.${process.pid}.previous`);
   rmSync(pending, { recursive: true, force: true });
   rmSync(previous, { recursive: true, force: true });
   try {
-    for (const entry of files) {
-      const relativePath = entry?.path?.replaceAll("\\", "/");
-      if (
-        typeof relativePath !== "string" ||
-        !relativePath ||
-        relativePath.startsWith("/") ||
-        /^[A-Za-z]:\//.test(relativePath) ||
-        relativePath.split("/").includes("..")
-      ) {
-        throw new InstallError(`npm pack 返回不安全路径：${relativePath}`);
-      }
-      const source = resolve(pluginRoot, relativePath);
-      const target = resolve(pending, relativePath);
-      mkdirSync(dirname(target), { recursive: true });
-      cpSync(source, target, { dereference: true });
-    }
-    for (const required of [
-      ".codex-plugin/plugin.json",
-      "hooks/hooks.json",
-      "skills/semantic-preflight/SKILL.md",
-    ]) {
-      if (!existsSync(resolve(pending, required)))
-        throw new InstallError(`分发副本缺少必需文件：${required}`);
-    }
+    copyPackedFiles(pending);
+    requirePackedFiles(
+      pending,
+      [
+        ".codex-plugin/plugin.json",
+        "hooks/hooks.json",
+        "skills/semantic-preflight/SKILL.md",
+      ],
+      "分发副本",
+    );
     if (existsSync(distributionRoot)) {
       const stat = lstatSync(distributionRoot);
       if (!stat.isDirectory() || stat.isSymbolicLink())
@@ -424,12 +444,31 @@ function installCursor(dryRun) {
     for (const legacyId of legacyPluginIds) {
       rmSync(cursorTarget(legacyId), { recursive: true, force: true });
     }
-    rmSync(target, { recursive: true, force: true });
-    symlinkSync(
-      pluginRoot,
-      target,
-      process.platform === "win32" ? "junction" : "dir",
+    const pending = join(
+      dirname(target),
+      `.${pluginId}.${process.pid}.pending`,
     );
+    rmSync(pending, { recursive: true, force: true });
+    try {
+      copyPackedFiles(pending);
+      requirePackedFiles(
+        pending,
+        [
+          ".cursor-plugin/plugin.json",
+          "hooks/hooks-cursor.json",
+          "skills/semantic-preflight/SKILL.md",
+          "agents/semantic-boundary-explorer.md",
+        ],
+        "Cursor 插件",
+      );
+      rmSync(target, { recursive: true, force: true });
+      renameSync(pending, target);
+    } catch (error) {
+      rmSync(pending, { recursive: true, force: true });
+      throw error instanceof InstallError
+        ? error
+        : new InstallError(`无法安装 Cursor 插件：${error.message}`);
+    }
   }
   return { status: "installed", pluginRef: target };
 }

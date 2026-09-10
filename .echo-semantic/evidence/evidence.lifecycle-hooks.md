@@ -2,12 +2,16 @@
 schema_version: 1
 id: evidence.lifecycle-hooks
 kind: evidence
-observed_at: source:175cefcc6dc6426a09103b7f6f98bc1fad160a2e6e5586a525d17d4ecf0ea7c2
+observed_at: source:0601ac04b1ed498782b4462cee66859c92500770eb0a401cf53e3072fdac7214
 source_refs:
   - hooks/hooks.json#SessionStart
   - hooks/plugin-entry.mjs#function run
   - hooks/entry.mjs#checkEditScope
+  - hooks/entry.mjs#function isCursorEditTool
+  - hooks/entry.mjs#function deny
   - hooks/entry.mjs#function stop
+  - hooks/hooks-cursor.json#preToolUse
+  - tests/hooks.test.mjs#Cursor 按官方工具名识别写入路径，并放行只读工具
   - hooks/entry.mjs#checkpoint
   - runtime/project-state.mjs#writeVisibleStatus
   - runtime/project-state.mjs#ensureProjectStateIgnored
@@ -29,7 +33,7 @@ supports:
     rule.engineering-tools-own-style,
   ]
 limitations:
-  - Cursor 真实窗口尚未重载验收
+  - Cursor 真实窗口尚未重载验收；stop 只能 followup，不能阻断会话结束
 ---
 
 # 生命周期门禁证据

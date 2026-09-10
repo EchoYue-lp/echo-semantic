@@ -32,7 +32,7 @@ Codex、Cursor 和 Claude Code 都支持 Skill；三者也提供不同形态的�
 9. 安装器是插件分发工具，不承担事务性来源迁移。安装和卸载按宿主渠道直接覆盖本插件对应内容；`all` 先检测宿主是否存在，
    未安装宿主返回 `skipped`，显式指定未安装宿主返回 `manual_action`。完整卸载删除插件私有状态目录。
 10. 对外展示名使用 `Echo Semantic`，GitHub 仓库、三宿主插件 ID 和 marketplace 名统一为 `echo-semantic`。安装新 ID 时
-    直接清理旧插件 ID 的宿主注册、用户级 Hook 投影、Agent、Cursor 链接和安装状态；旧 GitHub Action 地址不提供重命名兼容承诺。
+    直接清理旧插件 ID 的宿主注册、用户级 Hook 投影、Agent、Cursor 本地镜像和安装状态；旧 GitHub Action 地址不提供重命名兼容承诺。
 
 ## 影响
 

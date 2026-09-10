@@ -64,6 +64,10 @@ test("Codex 与 Claude Code 共用原生 Hook，Cursor 保留专用事件名", (
   assert.ok(cursor.hooks.sessionStart);
   assert.ok(cursor.hooks.preCompact);
   assert.ok(cursor.hooks.preToolUse);
+  assert.match(cursor.hooks.preToolUse[0].matcher, /Write/);
+  assert.match(cursor.hooks.preToolUse[0].command, /CURSOR_PLUGIN_ROOT/);
+  assert.ok(cursor.hooks.stop);
+  assert.equal(cursor.hooks.stop[0].loop_limit, 2);
 });
 
 test("GitHub Action 将高风险基准声明为必填", () => {

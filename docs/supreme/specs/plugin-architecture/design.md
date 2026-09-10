@@ -399,7 +399,7 @@ sequenceDiagram
   participant Installer as bin/install.mjs
   participant Detect as 宿主检测
   participant Host as Codex / Cursor / Claude Code
-  participant Projection as Hook / Agent / 链接投影
+  participant Projection as Hook / Agent / 本地镜像
   participant State as ~/.echo-semantic
 
   User->>Installer: install <channel | all>
@@ -412,7 +412,7 @@ sequenceDiagram
     Installer->>State: 覆盖生成干净分发副本
     Installer->>Host: 删除 echo-semantic 与旧 ID 注册
     Installer->>Host: 从分发副本添加 marketplace 和插件
-    Installer->>Projection: 安装原生 Hook、覆盖 Agent 或 Cursor 链接并清理旧用户 Hook
+    Installer->>Projection: 安装原生 Hook、覆盖 Agent 或 Cursor 实目录镜像并清理旧用户 Hook
     Installer->>State: 写入该渠道 installed 状态
     Installer-->>User: installed
   end

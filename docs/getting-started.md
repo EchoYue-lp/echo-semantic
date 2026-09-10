@@ -77,11 +77,15 @@ Claude Code：
 claude plugin list --json
 ```
 
-Cursor 使用本地插件目录。macOS 和 Linux 可以检查：
+Cursor 使用本地插件目录。当前 Cursor 会拒绝指向该目录之外的符号链接，因此安装器复制发布白名单文件，而不是链接仓库。macOS 和 Linux 可以检查：
 
 ```bash
-ls -l ~/.cursor/plugins/local/echo-semantic
+test -d ~/.cursor/plugins/local/echo-semantic
+test ! -L ~/.cursor/plugins/local/echo-semantic
+test -f ~/.cursor/plugins/local/echo-semantic/.cursor-plugin/plugin.json
 ```
+
+然后重新加载窗口，在 Customize → Plugins 中应看到 **Echo Semantic** 且带 Local 徽章。若仍只看到旧名称 `echo-coding-semantic-governance`，先从 Claude Code 卸载该旧 ID：Cursor 会导入已启用的 Claude 插件。
 
 ## 让项目采用语义治理
 

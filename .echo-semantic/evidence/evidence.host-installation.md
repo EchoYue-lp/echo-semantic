@@ -2,11 +2,13 @@
 schema_version: 1
 id: evidence.host-installation
 kind: evidence
-observed_at: source:175cefcc6dc6426a09103b7f6f98bc1fad160a2e6e5586a525d17d4ecf0ea7c2
+observed_at: source:0601ac04b1ed498782b4462cee66859c92500770eb0a401cf53e3072fdac7214
 source_refs:
   - bin/install.mjs#installCodex
   - bin/install.mjs#installClaude
   - bin/install.mjs#installCursor
+  - bin/install.mjs#function packedRelativePaths
+  - bin/install.mjs#function copyPackedFiles
   - bin/install.mjs#function stageDistribution
   - scripts/validate-package.mjs#分发包内容校验通过
   - scripts/validate-plugin.mjs#Claude marketplace version 与 package.json 不一致
@@ -18,15 +20,16 @@ source_refs:
 supports: [behavior.multi-host-installation]
 limitations:
   - Windows 宿主尚未执行真实安装
-  - Cursor 需要重载窗口后验证运行时发现
+  - Cursor 需要重载窗口后在新会话验证运行时 Hook
+  - 当前 Cursor 拒绝指向 `plugins/local` 之外的符号链接，安装必须使用普通目录镜像
 ---
 
 # 多宿主安装证据
 
 ## 支持的结论
 
-安装器能够使用 Codex 和 Claude Code 原生 marketplace，并以可逆链接覆盖安装 Cursor 插件；三宿主真实卸载后没有本插件残留，随后重新安装成功。
-跨克隆测试证明新来源可以直接覆盖 Cursor 内容，重命名回归证明新 `echo-semantic` 安装会删除旧用户 Hook、Agent 和安装状态，并改由插件原生 Hook 提供来源归属。分发包校验和安装回归确保长期语义材料随插件发布，同时从宿主分发副本排除项目运行态文件和 Python 缓存；staging 失败不会破坏仍被其它渠道使用的现有副本。
+安装器能够使用 Codex 和 Claude Code 原生 marketplace，并以可逆普通目录镜像安装 Cursor 插件；三宿主真实卸载后没有本插件残留，随后重新安装成功。
+跨克隆测试证明新来源可以直接覆盖 Cursor 内容，重命名回归证明新 `echo-semantic` 安装会删除旧用户 Hook、Agent 和安装状态，并改由插件原生 Hook 提供来源归属。分发包校验和安装回归确保长期语义材料随插件发布，同时从宿主分发副本排除项目运行态文件和 Python 缓存；staging 失败不会破坏仍被其它渠道使用的现有副本。当前 Cursor 日志已证明跨目录 symlink 会被 `loadUserLocalPlugin` 拒绝。
 
 ## 来源与范围
 

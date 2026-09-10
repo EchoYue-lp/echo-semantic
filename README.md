@@ -128,7 +128,7 @@ flowchart TD
 | 宿主        | Skill    | Agent     | 编辑前检查     | PreCompact | Stop | 安装方式        |
 | ----------- | -------- | --------- | -------------- | ---------- | ---- | --------------- |
 | Codex       | manifest | TOML 投影 | 当前未稳定覆盖 | 降级支持   | 支持 | CLI + 原生 Hook |
-| Cursor      | manifest | 原生目录  | `preToolUse`   | 降级支持   | 支持 | 本地插件链接    |
+| Cursor      | manifest | 原生目录  | `preToolUse`   | 降级支持   | followup | 本地实目录镜像  |
 | Claude Code | manifest | 原生插件  | `PreToolUse`   | 支持       | 支持 | Marketplace CLI |
 
 “支持”表示已有适配和静态合同，不自动证明当前宿主版本、配置和信任状态下真实事件已经触发。详见 [宿主支持](docs/host-support.md)。
@@ -151,7 +151,7 @@ node bin/install.mjs install cursor
 node bin/install.mjs install claude-code
 ```
 
-安装器优先调用宿主原生插件命令；Cursor 使用其本地插件目录。Codex 与 Claude Code 安装前会按发布白名单覆盖生成
+安装器优先调用宿主原生插件命令；Cursor 把发布白名单文件复制到本地插件目录。Codex 与 Claude Code 安装前会按发布白名单覆盖生成
 `~/.echo-semantic/distribution/`，避免把当前项目运行态或开发缓存带入宿主。安装结果记录在
 `~/.echo-semantic/install-state.json`，卸载只撤回该状态中由本插件拥有的路径和注册项；最后一个使用分发副本的渠道卸载后，
 分发副本也会删除：

@@ -174,11 +174,25 @@ Baseline 的 `regions` 没有覆盖新文件。判断该路径是：
 
 ## Cursor 安装后无变化
 
-确认链接存在后重新加载窗口：
+当前 Cursor 会拒绝指向 `~/.cursor/plugins/local` 之外的符号链接。确认安装结果是普通目录：
 
 ```bash
-ls -l ~/.cursor/plugins/local/echo-semantic
+test -d ~/.cursor/plugins/local/echo-semantic
+test ! -L ~/.cursor/plugins/local/echo-semantic
+test -f ~/.cursor/plugins/local/echo-semantic/.cursor-plugin/plugin.json
 ```
+
+然后执行 **Developer: Reload Window**。Customize → Plugins 应出现 Echo Semantic（Local）。
+
+若日志仍有：
+
+```text
+loadUserLocalPlugin echo-semantic rejected: symlink target ... is outside .../plugins/local
+```
+
+重新运行 `node bin/install.mjs install cursor`。不要手工 `ln -s` 仓库。
+
+Cursor 还会导入已启用的 Claude Code 插件。若界面或会话仍出现旧 ID `echo-coding-semantic-governance`，先卸载该 Claude 插件再重载窗口。
 
 如果项目未被信任或当前 Cursor 版本不支持对应事件，Hook 可能不运行；保留 CI 门禁并记录真实验收缺口。
 

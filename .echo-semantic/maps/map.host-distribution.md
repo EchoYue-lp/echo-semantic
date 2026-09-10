@@ -4,7 +4,7 @@ id: map.host-distribution
 kind: capability_map
 title: Codex、Cursor 与 Claude Code 分发
 risk: medium
-observed_at: source:175cefcc6dc6426a09103b7f6f98bc1fad160a2e6e5586a525d17d4ecf0ea7c2
+observed_at: source:0601ac04b1ed498782b4462cee66859c92500770eb0a401cf53e3072fdac7214
 boundary_refs: [boundary.host-distribution]
 behavior_refs: [behavior.multi-host-installation]
 rule_refs: [rule.single-semantic-authority]
@@ -22,10 +22,11 @@ scenarios:
     source_refs: [bin/install.mjs#installClaude]
     evidence_refs: [evidence.host-installation]
   cursor-install:
-    status: needs_review
-    source_refs: [bin/install.mjs#installCursor]
-    unknown: 窗口重载后插件与 Hook 是否由当前 Cursor 版本完整发现
-    next_step: 在运行中的 Cursor 重载窗口并执行显式探针
+    status: mapped
+    source_refs: [bin/install.mjs#installCursor, bin/install.mjs#function copyPackedFiles]
+    evidence_refs: [evidence.host-installation]
+    unknown: 窗口重载后的真实 sessionStart / preToolUse / stop 事件
+    next_step: 重新加载 Cursor 窗口并在新会话执行显式探针
 ---
 
 # 多宿主分发
@@ -40,7 +41,7 @@ scenarios:
 
 ## 行为关系
 
-Codex 和 Claude Code 从按发布白名单生成的用户级分发副本使用原生 marketplace；Cursor 使用用户本地插件链接。
+Codex 和 Claude Code 从按发布白名单生成的用户级分发副本使用原生 marketplace；Cursor 使用同一白名单在 `~/.cursor/plugins/local` 生成普通目录镜像。
 
 ## 状态与数据流
 
@@ -64,8 +65,7 @@ README 提供统一仓库地址、安装命令和每个宿主的重载要求；C
 
 ## 场景处置清单
 
-Codex 已取得安装和入口执行证据；Claude Code 已取得安装及认证失败前事件证据，完整登录会话仍待验收；Cursor 安装完成，
-运行时仍待窗口重载验收；跨克隆覆盖和悬空链接已有回归证据。
+Codex 已取得安装和入口执行证据；Claude Code 已取得安装及认证失败前事件证据，完整登录会话仍待验收；Cursor 改为实目录镜像以通过当前宿主的符号链接限制，运行时仍待窗口重载后的新会话验收；跨克隆覆盖和悬空链接已有回归证据。
 
 ## 未展开项
 

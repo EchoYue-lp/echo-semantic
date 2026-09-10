@@ -361,12 +361,24 @@ function findEditedPath(input) {
     input.path,
     input.tool_input?.file_path,
     input.tool_input?.path,
+    input.tool_input?.filePath,
     input.toolInput?.filePath,
     input.toolInput?.path,
   ];
   return (
     candidates.find((item) => typeof item === "string" && item.trim()) ?? null
   );
+}
+
+function isCursorEditTool(input) {
+  const name = input.tool_name || input.toolName;
+  if (typeof name !== "string" || !name.trim()) return true;
+  return /^(Write|StrReplace|Delete|Edit|TabWrite)$/i.test(name.trim());
+}
+
+function allow(host) {
+  if (host === "cursor") emit({ permission: "allow" });
+  else emit();
 }
 
 function normalizeEditedPath(root, value) {
@@ -405,6 +417,19 @@ function deny(reason, root, host = "unknown", event = "unknown") {
       );
     }
   }
+  if (host === "cursor" && event === "stop") {
+    emit({ followup_message: reason });
+    return;
+  }
+  if (host === "cursor") {
+    emit({
+      permission: "deny",
+      user_message: reason,
+      agent_message: reason,
+    });
+    process.exitCode = 2;
+    return;
+  }
   emit({ decision: "block", reason });
   process.exitCode = 2;
 }
@@ -426,7 +451,7 @@ function checkEditScope(root, input, host) {
       host,
       message: "项目尚未采用 .echo-semantic/ 基线",
     });
-    emit();
+    allow(host);
     return;
   }
   try {
@@ -437,6 +462,16 @@ function checkEditScope(root, input, host) {
     deny(`无法记录编辑前 Hook 证据：${error.message}`, root, host, "pre-edit");
     return;
   }
+  if (host === "cursor" && !isCursorEditTool(input)) {
+    writeVisibleStatus(root, {
+      state: "ready",
+      event: "pre-edit",
+      host,
+      message: "当前工具不是写入类工具",
+    });
+    allow(host);
+    return;
+  }
   const edited = findEditedPath(input);
   if (!edited) {
     writeVisibleStatus(root, {
@@ -445,7 +480,7 @@ function checkEditScope(root, input, host) {
       host,
       message: "当前工具没有可检查的编辑路径",
     });
-    emit();
+    allow(host);
     return;
   }
   const relativePath = normalizeEditedPath(root, edited);
@@ -478,7 +513,7 @@ function checkEditScope(root, input, host) {
     host,
     message: `允许路径：${relativePath}`,
   });
-  emit();
+  allow(host);
 }
 
 function stop(root, input, host) {

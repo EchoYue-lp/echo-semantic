@@ -5,6 +5,12 @@
 
 ## Unreleased
 
+### Cursor 宿主发现与合同
+
+- Cursor 安装改为按 npm 发布白名单复制到 `~/.cursor/plugins/local/echo-semantic` 普通目录；当前 Cursor 会拒绝指向该目录之外的符号链接，因此不再把仓库 symlink 报告为已安装；
+- Cursor `preToolUse` 按官方合同输出 `permission` / `user_message` / `agent_message`，并匹配 `Write|StrReplace|Delete|Edit`；
+- Cursor `stop` 失败改为 `followup_message` 拉回校验，不再声称可以阻断会话结束；确定性阻断仍由编辑前检查和 CI 负责。
+
 ### 待决定
 
 - 首次公开分发前选择并添加明确的开源许可证。

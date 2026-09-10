@@ -4,7 +4,7 @@ id: map.lifecycle-enforcement
 kind: capability_map
 title: 生命周期 Hook 与确定性门禁
 risk: high
-observed_at: source:175cefcc6dc6426a09103b7f6f98bc1fad160a2e6e5586a525d17d4ecf0ea7c2
+observed_at: source:0601ac04b1ed498782b4462cee66859c92500770eb0a401cf53e3072fdac7214
 boundary_refs: [boundary.lifecycle-enforcement]
 behavior_refs: [behavior.post-change-verification]
 rule_refs: [rule.high-risk-evidence, rule.engineering-tools-own-style]
@@ -53,7 +53,7 @@ scenarios:
 
 ## 入口与输出
 
-Codex 与 Claude Code 从 `hooks/hooks.json` 原生发现 Hook 并保留插件来源，Cursor 使用专用映射；宿主输入统一转换为上下文、允许或拒绝结果，Action 返回标准退出码。
+Codex 与 Claude Code 从 `hooks/hooks.json` 原生发现 Hook 并保留插件来源，Cursor 使用专用映射；宿主输入统一转换为上下文、允许或拒绝结果，Action 返回标准退出码。Cursor 编辑前输出 `permission`，停止失败输出 `followup_message`；Codex 与 Claude Code 继续使用 `decision: block`。
 
 ## 行为关系
 

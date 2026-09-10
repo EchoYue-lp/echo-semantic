@@ -8,10 +8,13 @@ risk: medium
 primary_focus: time_lifecycle
 focus: [permission_external, data_durability]
 boundary: boundary.host-distribution
-observed_at: source:175cefcc6dc6426a09103b7f6f98bc1fad160a2e6e5586a525d17d4ecf0ea7c2
+observed_at: source:0601ac04b1ed498782b4462cee66859c92500770eb0a401cf53e3072fdac7214
 code_refs:
   - bin/install.mjs#function main
+  - bin/install.mjs#function packedRelativePaths
+  - bin/install.mjs#function copyPackedFiles
   - bin/install.mjs#function stageDistribution
+  - bin/install.mjs#function installCursor
   - hooks/hooks.json#SessionStart
   - .codex-plugin/plugin.json#echo-semantic
   - .cursor-plugin/plugin.json#echo-semantic
@@ -29,7 +32,7 @@ finding_refs: []
 
 ## 当前行为
 
-GitHub 仓库、插件 ID 和 marketplace 名统一为 `echo-semantic`；Codex 与 Claude Code 使用按发布白名单生成的用户级分发副本接入原生 marketplace，Cursor 使用指向当前克隆的用户级链接。
+GitHub 仓库、插件 ID 和 marketplace 名统一为 `echo-semantic`；Codex 与 Claude Code 使用按发布白名单生成的用户级分发副本接入原生 marketplace，Cursor 使用同一白名单复制到 `~/.cursor/plugins/local/echo-semantic` 普通目录。当前 Cursor 会拒绝指向该目录之外的符号链接。
 
 ## 期望行为
 
@@ -47,7 +50,7 @@ GitHub 仓库重命名会重定向普通 Git 操作，但旧 GitHub Action `uses
 
 ## 证据
 
-本机 Codex、Claude Code 安装可见；Cursor 链接可见，窗口重载验收仍待完成。
+本机 Codex、Claude Code 安装可见；Cursor 复制为 `~/.cursor/plugins/local` 下普通目录，符号链接会被当前 Cursor 拒绝。窗口重载后的真实 Hook 事件仍待新会话验收。
 
 ## 裁决记录
 

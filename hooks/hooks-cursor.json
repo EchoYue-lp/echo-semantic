@@ -16,6 +16,7 @@
     "preToolUse": [
       {
         "command": "node \"${CURSOR_PLUGIN_ROOT}/hooks/entry.mjs\" cursor pre-edit",
+        "matcher": "Write|StrReplace|Delete|Edit",
         "timeout": 10
       }
     ],

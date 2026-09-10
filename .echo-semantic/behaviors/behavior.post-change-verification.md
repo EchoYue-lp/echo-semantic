@@ -8,9 +8,11 @@ risk: high
 primary_focus: failure_concurrency
 focus: [contract_evidence, time_lifecycle]
 boundary: boundary.lifecycle-enforcement
-observed_at: source:175cefcc6dc6426a09103b7f6f98bc1fad160a2e6e5586a525d17d4ecf0ea7c2
+observed_at: source:0601ac04b1ed498782b4462cee66859c92500770eb0a401cf53e3072fdac7214
 code_refs:
   - hooks/entry.mjs#function stop
+  - hooks/entry.mjs#function deny
+  - hooks/entry.mjs#function isCursorEditTool
   - skills/semantic-contract/scripts/verify_semantic.py#validate_change_evidence
   - action.yml#执行语义治理门禁
   - runtime/route.mjs#computeRoute
@@ -30,7 +32,8 @@ finding_refs: []
 ## 当前行为
 
 Hook 检查预检状态并运行严格校验；Action 在独立环境重新检查最终 Git 差异；PreCompact 保存带证据摘要的任务继续包，
-resume 只恢复仍匹配当前仓库和分支的继续包。
+resume 只恢复仍匹配当前仓库和分支的继续包。Codex 与 Claude Code 停止失败返回 `decision: block` 且退出码 2；
+Cursor 停止失败只发送 `followup_message` 且退出码 0，不能阻断会话结束。编辑前 Cursor 使用 `permission`，其它宿主仍用 `decision`。
 
 ## 期望行为
 
@@ -38,7 +41,8 @@ resume 只恢复仍匹配当前仓库和分支的继续包。
 
 ## 触发、结果与副作用
 
-Claude Code 与 Cursor 在编辑前触发路径检查，三个宿主在停止前验证；只读取仓库与 `.echo-semantic/` 运行态，失败时阻断当前动作。
+Claude Code 与 Cursor 在编辑前触发路径检查，三个宿主在停止前验证；只读取仓库与 `.echo-semantic/` 运行态。
+Codex 与 Claude Code 失败时阻断当前动作；Cursor 编辑前用 `permission: deny` 阻断，停止失败只能追加 followup。
 
 ## 失败、重试与恢复
 

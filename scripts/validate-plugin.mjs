@@ -116,6 +116,13 @@ if (
     }
   }
 }
+const cursorHooks = json("hooks/hooks-cursor.json");
+if (!cursorHooks.hooks?.preToolUse?.[0]?.matcher?.includes("Write")) {
+  fail("Cursor preToolUse 必须匹配写入类工具");
+}
+if (cursorHooks.hooks?.stop?.[0]?.loop_limit !== 2) {
+  fail("Cursor stop 必须限制 followup 循环");
+}
 
 for (const path of [
   "hooks/hooks.json",
