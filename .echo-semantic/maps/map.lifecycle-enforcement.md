@@ -4,7 +4,7 @@ id: map.lifecycle-enforcement
 kind: capability_map
 title: 生命周期 Hook 与确定性门禁
 risk: high
-observed_at: source:677bbc9ea253c6fbb8c000981c28c7c3a94e5a8d4b0f7eb906169c77972c2d5f
+observed_at: source:5b21f4df7f4d3fc137da895bc2c4b805f9a57e690a3ab702e712dfed81327d13
 boundary_refs: [boundary.lifecycle-enforcement]
 behavior_refs: [behavior.post-change-verification]
 rule_refs: [rule.high-risk-evidence, rule.engineering-tools-own-style]
@@ -27,7 +27,8 @@ scenarios:
     evidence_refs: [evidence.lifecycle-hooks]
   continuation-checkpoint:
     status: mapped
-    source_refs: [hooks/entry.mjs#checkpoint, runtime/continuation.mjs#writeContinuation]
+    source_refs:
+      [hooks/entry.mjs#checkpoint, runtime/continuation.mjs#writeContinuation]
     behavior_refs: [behavior.post-change-verification]
     evidence_refs: [evidence.lifecycle-hooks]
   ci-verification:
@@ -52,11 +53,11 @@ Claude Code 与 Cursor 的编辑前 Hook 提供实时阻断，Codex 在 Stop 时
 
 ## 状态与数据流
 
-Hook 只读取项目语义材料和 Git 私有预检状态；继续包位于同一 Git 私有目录，带仓库、分支和证据摘要校验，不建立业务数据库。
+Hook 只读取项目语义材料和 Git 私有预检状态；继续包位于同一 .echo-semantic 目录，带仓库、分支和证据摘要校验，不建立业务数据库。
 
 ## 策略来源与优先级
 
-项目是否存在 `semantic/baseline.md` 决定是否启用停止门禁；宿主信任策略继续生效。
+项目是否存在 `.echo-semantic/baseline.md` 决定是否启用停止门禁；宿主信任策略继续生效。
 
 ## 生命周期与失败路径
 

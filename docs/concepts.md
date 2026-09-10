@@ -71,11 +71,11 @@ Baseline 有两个独立闭合字段：
 
 ## 三类短期状态
 
-| 状态         | 位置                                   | 约束                                   |
-| ------------ | -------------------------------------- | -------------------------------------- |
-| Preflight    | `.git/echo-semantic/preflight.json`    | 绑定仓库、HEAD、任务，最长 24 小时     |
-| Route        | `.git/echo-semantic/route.json`        | 绑定宿主探测和当前工作树，最长 24 小时 |
-| Continuation | `.git/echo-semantic/continuation.json` | 绑定任务、分支和证据摘要，最长 7 天    |
+| 状态         | 位置                               | 约束                                   |
+| ------------ | ---------------------------------- | -------------------------------------- |
+| Preflight    | `.echo-semantic/preflight.json`    | 绑定仓库、HEAD、任务，最长 24 小时     |
+| Route        | `.echo-semantic/route.json`        | 绑定宿主探测和当前工作树，最长 24 小时 |
+| Continuation | `.echo-semantic/continuation.json` | 绑定任务、分支和证据摘要，最长 7 天    |
 
 这些文件不提交 Git，不定义项目架构。它们损坏或失效时，系统回到重新预检、重新路由或无恢复提示状态。
 
@@ -84,8 +84,8 @@ Baseline 有两个独立闭合字段：
 ```mermaid
 flowchart TD
   Product[产品期望与架构] --> Design[项目 design / ADR]
-  Behavior[长期语义事实] --> Semantic[项目 semantic/]
-  Task[当前任务约束] --> Private[Git 私有状态]
+  Behavior[长期语义事实] --> Semantic[项目 .echo-semantic/]
+  Task[当前任务约束] --> Private[.echo-semantic 运行态]
   Quality[实现质量] --> Tools[Formatter / Lint / 类型 / 测试]
   Install[宿主安装结果] --> Host[宿主注册与 ~/.echo-semantic]
 ```
@@ -94,7 +94,7 @@ flowchart TD
 
 - 设计与 ADR 决定“应该怎样”；
 - 源码与机器契约说明“现在怎样”；
-- `semantic/` 连接行为、规则与证据；
+- `.echo-semantic/` 连接行为、规则与证据；
 - 工程工具决定代码是否满足格式、类型和测试要求；
 - 预检和继续包只约束当前任务。
 

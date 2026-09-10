@@ -28,19 +28,16 @@ test("PreCompact 保存继续包，resume 只恢复仍可信的任务", () => {
   git(repository, "init", "-q");
   git(repository, "config", "user.email", "test@example.com");
   git(repository, "config", "user.name", "Test");
-  mkdirSync(resolve(repository, "semantic"));
+  mkdirSync(resolve(repository, ".echo-semantic"));
   writeFileSync(
-    resolve(repository, "semantic/baseline.md"),
+    resolve(repository, ".echo-semantic/baseline.md"),
     "baseline\n",
     "utf8",
   );
-  git(repository, "add", "semantic/baseline.md");
+  git(repository, "add", ".echo-semantic/baseline.md");
   git(repository, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
   const head = git(repository, "rev-parse", "HEAD");
-  const statePath = resolve(
-    repository,
-    git(repository, "rev-parse", "--git-path", "echo-semantic/preflight.json"),
-  );
+  const statePath = resolve(repository, ".echo-semantic/preflight.json");
   mkdirSync(resolve(statePath, ".."), { recursive: true });
   writeFileSync(
     statePath,
@@ -66,12 +63,7 @@ test("PreCompact 保存继续包，resume 只恢复仍可信的任务", () => {
   assert.equal(checkpoint.status, 0, checkpoint.stderr);
   const continuationPath = resolve(
     repository,
-    git(
-      repository,
-      "rev-parse",
-      "--git-path",
-      "echo-semantic/continuation.json",
-    ),
+    ".echo-semantic/continuation.json",
   );
   assert.equal(existsSync(continuationPath), true);
   assert.equal(
@@ -95,7 +87,7 @@ test("PreCompact 保存继续包，resume 只恢复仍可信的任务", () => {
   );
 
   writeFileSync(
-    resolve(repository, "semantic/baseline.md"),
+    resolve(repository, ".echo-semantic/baseline.md"),
     "changed\n",
     "utf8",
   );

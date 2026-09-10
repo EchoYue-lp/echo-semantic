@@ -17,6 +17,14 @@ sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 from governance_contract import AuthorityError, validate_design_authority
 
 PLUGIN_ID = "echo-semantic"
+PROJECT_STATE_DIRECTORY = ".echo-semantic"
+RUNTIME_STATE_FILES = (
+    "status.md",
+    "status.json",
+    "preflight.json",
+    "route.json",
+    "continuation.json",
+)
 SCHEMA_VERSION = 1
 KINDS = ("bugfix", "feature", "refactor", "contract", "style")
 RISKS = ("low", "medium", "high")
@@ -46,9 +54,62 @@ def repository_root(value: str) -> Path:
 
 
 def state_path(root: Path) -> Path:
-    raw = run_git(root, "rev-parse", "--git-path", f"{PLUGIN_ID}/preflight.json")
+    return (root / PROJECT_STATE_DIRECTORY / "preflight.json").resolve()
+
+
+def migrate_legacy_state(root: Path) -> None:
+    try:
+        raw = run_git(root, "rev-parse", "--git-path", PLUGIN_ID)
+    except PreflightError:
+        return
+    legacy = Path(raw)
+    if not legacy.is_absolute():
+        legacy = root / legacy
+    target = root / PROJECT_STATE_DIRECTORY
+    try:
+        if legacy.resolve() == target.resolve() or not legacy.is_dir():
+            return
+        target.mkdir(parents=True, exist_ok=True)
+        for name in RUNTIME_STATE_FILES:
+            source = legacy / name
+            destination = target / name
+            if source.is_file() and not destination.exists():
+                source.replace(destination)
+        if not any(legacy.iterdir()):
+            legacy.rmdir()
+    except (OSError, RuntimeError):
+        return
+
+
+def ensure_state_ignored(root: Path) -> None:
+    migrate_legacy_state(root)
+    try:
+        raw = run_git(root, "rev-parse", "--git-path", "info/exclude")
+    except PreflightError:
+        return
     path = Path(raw)
-    return path.resolve() if path.is_absolute() else (root / path).resolve()
+    if not path.is_absolute():
+        path = root / path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        current = path.read_text(encoding="utf-8") if path.exists() else ""
+    except (OSError, UnicodeError):
+        return
+    markers = [f"/{PROJECT_STATE_DIRECTORY}/{name}" for name in RUNTIME_STATE_FILES]
+    lines = set(current.splitlines())
+    missing = [marker for marker in markers if marker not in lines]
+    if not missing:
+        return
+    prefix = "" if not current or current.endswith("\n") else "\n"
+    try:
+        path.write_text(
+            f"{current}{prefix}# {PLUGIN_ID} project runtime state\n"
+            + "\n".join(missing)
+            + "\n",
+            encoding="utf-8",
+        )
+    except (OSError, UnicodeError):
+        return
 
 
 def normalize_path(root: Path, value: str) -> str:
@@ -156,6 +217,7 @@ def record(args: argparse.Namespace) -> int:
         "designAuthorities": authorities,
     }
     destination = state_path(root)
+    ensure_state_ignored(root)
     write_atomic(destination, payload)
     print(f"语义预检已记录：{destination}")
     return 0

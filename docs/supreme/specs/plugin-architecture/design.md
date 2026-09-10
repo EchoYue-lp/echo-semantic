@@ -13,7 +13,7 @@ carrier: markdown
 - [ADR 0001](../../../adr/0001-multi-host-layered-enforcement.md) 记录为什么采用“Skill 判断、Hook 接线、校验器与 CI 阻断”的架构决策；
 - 本文描述该决策落地后的完整系统形态，不替代 ADR；
 - [多宿主适配](../../../multi-host-adapters.md) 保存 Codex、Cursor、Claude Code 的适配差异；
-- 采用方项目自己的 design/ADR 和 `semantic/` 仍是业务语义权威，插件文档不保存采用方事实。
+- 采用方项目自己的 design/ADR 和 `.echo-semantic/` 仍是业务语义权威，插件文档不保存采用方事实。
 
 ## 问题与目标
 
@@ -31,7 +31,7 @@ carrier: markdown
 
 ## 目标行为
 
-- 未采用语义基线的项目进入 `bootstrap`，先建立或修复 `semantic/`；
+- 未采用语义基线的项目进入 `bootstrap`，先建立或修复 `.echo-semantic/`；
 - 已采用项目必须在修改前拥有与当前仓库、HEAD 和任务匹配的 `semantic-preflight`；
 - 文档、配置、测试等低风险变化走 `fast`，普通非源码变化走 `standard`，生产源码、协议、迁移和治理控制面变化走 `strict`；
 - 高风险变化必须同时更新语义对象，架构类变化还必须绑定并更新正式 design/ADR；
@@ -88,9 +88,9 @@ flowchart TB
   end
 
   subgraph Authorities["采用方权威"]
-    Semantic[项目 semantic/]
+    Semantic[项目 .echo-semantic/]
     Design[项目 design 与 ADR]
-    GitPrivate[Git 私有任务状态]
+    Runtime[.echo-semantic 运行态]
     Engineering[Formatter、Lint、类型与测试]
   end
 
@@ -105,7 +105,7 @@ flowchart TB
   Control --> Judgment
   Judgment --> Semantic
   Judgment --> Design
-  Control --> GitPrivate
+  Control --> Runtime
   Semantic --> Verifier
   Design --> Verifier
   GitPrivate --> Verifier
@@ -129,7 +129,7 @@ echo-semantic/
 ├── runtime/                    # 能力探测、风险路由和任务继续包
 ├── skills/                     # 八个语义 Skill 真理源
 ├── scripts/                    # 插件与设计合同校验
-├── semantic/                   # 插件自身的语义基线
+├── .echo-semantic/                   # 插件自身的语义基线
 ├── tests/                      # Node 与 Python 回归测试
 ├── docs/                       # 用户文档、设计和 ADR
 ├── action.yml                  # 可复用 GitHub Action
@@ -154,18 +154,19 @@ echo-semantic/
 
 ## 状态权威与存储
 
-| 状态或材料                            | 位置                                   | 生命周期                         | 权威级别         | 失效策略                       |
-| ------------------------------------- | -------------------------------------- | -------------------------------- | ---------------- | ------------------------------ |
-| Capability、Behavior、Rule 等长期事实 | `semantic/`                            | 随 Git 版本演进                  | 项目语义唯一权威 | 摘要、引用或关系失效即阻断验证 |
-| 产品与架构决策                        | 项目 design/ADR                        | 随 Git 版本演进                  | 产品和架构权威   | 内容摘要变化后重新绑定         |
-| 任务预检                              | `.git/echo-semantic/preflight.json`    | 最长 24 小时、绑定当前 HEAD      | 当前任务写入合同 | 过期、仓库或 HEAD 不匹配即无效 |
-| 风险路由                              | `.git/echo-semantic/route.json`        | 每次 SessionStart 或显式计算刷新 | 可丢弃计算结果   | 结构或时间无效时重新计算       |
-| 任务继续包                            | `.git/echo-semantic/continuation.json` | 最长 7 天、绑定任务/分支/证据    | 可丢弃恢复线索   | 任一证据摘要变化即忽略         |
-| 安装状态                              | `~/.echo-semantic/install-state.json`  | 用户级安装期间                   | 安装器记录       | 全部卸载后删除                 |
-| 宿主注册与缓存                        | Codex、Cursor、Claude Code 用户目录    | 由宿主管理                       | 安装投影         | 重装覆盖，卸载撤回             |
-| 工程验证结果                          | 项目工具与 CI                          | 每次变更重新产生                 | 实现质量权威     | 任何失败均不得以语义材料替代   |
+| 状态或材料                            | 位置                                      | 生命周期                         | 权威级别         | 失效策略                       |
+| ------------------------------------- | ----------------------------------------- | -------------------------------- | ---------------- | ------------------------------ |
+| Capability、Behavior、Rule 等长期事实 | `.echo-semantic/`                         | 随 Git 版本演进                  | 项目语义唯一权威 | 摘要、引用或关系失效即阻断验证 |
+| 产品与架构决策                        | 项目 design/ADR                           | 随 Git 版本演进                  | 产品和架构权威   | 内容摘要变化后重新绑定         |
+| 用户可见状态                          | `.echo-semantic/status.md`、`status.json` | 每个生命周期事件更新             | 用户可见运行投影 | 与 JSON 同次原子更新           |
+| 任务预检                              | `.echo-semantic/preflight.json`           | 最长 24 小时、绑定当前 HEAD      | 当前任务写入合同 | 过期、仓库或 HEAD 不匹配即无效 |
+| 风险路由                              | `.echo-semantic/route.json`               | 每次 SessionStart 或显式计算刷新 | 可丢弃计算结果   | 结构或时间无效时重新计算       |
+| 任务继续包                            | `.echo-semantic/continuation.json`        | 最长 7 天、绑定任务/分支/证据    | 可丢弃恢复线索   | 任一证据摘要变化即忽略         |
+| 安装状态                              | `~/.echo-semantic/install-state.json`     | 用户级安装期间                   | 安装器记录       | 全部卸载后删除                 |
+| 宿主注册与缓存                        | Codex、Cursor、Claude Code 用户目录       | 由宿主管理                       | 安装投影         | 重装覆盖，卸载撤回             |
+| 工程验证结果                          | 项目工具与 CI                             | 每次变更重新产生                 | 实现质量权威     | 任何失败均不得以语义材料替代   |
 
-Git 私有状态都是短期派生数据。删除它们最多要求重新预检、重新路由或丢失恢复提示，不会丢失项目长期语义事实。
+`.echo-semantic/` 是唯一项目目录；长期语义 Markdown 提交 Git，5 个运行态文件由 `.git/info/exclude` 排除。删除运行态文件最多要求重新预检、重新路由或丢失恢复提示。
 
 ## 主工作流
 
@@ -202,7 +203,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  Start[读取项目与宿主] --> HasBaseline{存在 semantic/baseline.md?}
+  Start[读取项目与宿主] --> HasBaseline{存在 .echo-semantic/baseline.md?}
   HasBaseline -- 否 --> Bootstrap[bootstrap]
   HasBaseline -- 是 --> HostReady{宿主已探测且 Stop / Skill 可用?}
   HostReady -- 否 --> Bootstrap
@@ -421,26 +422,26 @@ sequenceDiagram
 
 1. 宿主事件是触发输入，不是项目事实；`hooks/entry.mjs` 只提取工作目录、事件来源、工具路径和任务标识。
 2. Git 提供仓库根、HEAD、分支、工作树差异和私有状态路径，是当前性与谱系依据。
-3. `semantic/` 提供长期行为事实；源码与 design/ADR 提供实现和期望依据。
+3. `.echo-semantic/` 提供长期行为事实；源码与 design/ADR 提供实现和期望依据。
 4. Skill 可以提出、归并和复核语义结论，但只有校验器能确定结构、引用、摘要和路径分类是否成立。
 5. Hook 的成功只证明本地事件入口返回成功；CI 必须在独立环境重新读取最终差异。
 6. 真实宿主能力需要版本、配置、信任和生命周期事件证据；静态 manifest 不能单独证明 Hook 已运行。
 
 ## 异常与降级
 
-| 场景                             | 行为                                      | 是否放宽门禁                 |
-| -------------------------------- | ----------------------------------------- | ---------------------------- |
-| 当前目录不是 Git 仓库            | Hook 返回空结果，不创建项目状态           | 不适用                       |
-| 项目没有 `semantic/baseline.md`  | 路由为 `bootstrap`；Stop 不阻断未采用项目 | 不建立伪基线                 |
-| 宿主未探测到或关键能力未知       | 路由为 `bootstrap`                        | 否，最终依赖显式 Skill 和 CI |
-| 预检缺失、过期、HEAD 不匹配      | 编辑前或 Stop 返回阻断原因                | 否                           |
-| 编辑路径超出 `allowedPaths`      | 支持 PreToolUse 的宿主立即阻断            | 否                           |
-| Codex 缺少稳定 PreToolUse        | 不做虚假即时阻断声明                      | 否，由 Stop 和 CI 收口       |
-| 继续包损坏、过期或证据变化       | 忽略恢复包并重新判断 Frontier             | 否                           |
-| 校验器或 `uv` 不可用             | Stop 失败并保留预检                       | 否                           |
-| 语义摘要、源码引用或路径分类失效 | `semantic-verify` 和 CI 失败              | 否                           |
-| 一个宿主安装失败                 | 返回该宿主 `failed`，保留其它宿主结果     | 不影响其它渠道               |
-| Hook 未被宿主信任或未触发        | 不声称运行时已覆盖                        | 否，由 CI 提供最终信号       |
+| 场景                                  | 行为                                      | 是否放宽门禁                 |
+| ------------------------------------- | ----------------------------------------- | ---------------------------- |
+| 当前目录不是 Git 仓库                 | Hook 返回空结果，不创建项目状态           | 不适用                       |
+| 项目没有 `.echo-semantic/baseline.md` | 路由为 `bootstrap`；Stop 不阻断未采用项目 | 不建立伪基线                 |
+| 宿主未探测到或关键能力未知            | 路由为 `bootstrap`                        | 否，最终依赖显式 Skill 和 CI |
+| 预检缺失、过期、HEAD 不匹配           | 编辑前或 Stop 返回阻断原因                | 否                           |
+| 编辑路径超出 `allowedPaths`           | 支持 PreToolUse 的宿主立即阻断            | 否                           |
+| Codex 缺少稳定 PreToolUse             | 不做虚假即时阻断声明                      | 否，由 Stop 和 CI 收口       |
+| 继续包损坏、过期或证据变化            | 忽略恢复包并重新判断 Frontier             | 否                           |
+| 校验器或 `uv` 不可用                  | Stop 失败并保留预检                       | 否                           |
+| 语义摘要、源码引用或路径分类失效      | `semantic-verify` 和 CI 失败              | 否                           |
+| 一个宿主安装失败                      | 返回该宿主 `failed`，保留其它宿主结果     | 不影响其它渠道               |
+| Hook 未被宿主信任或未触发             | 不声称运行时已覆盖                        | 否，由 CI 提供最终信号       |
 
 ## 关键取舍
 
@@ -450,11 +451,11 @@ Skill 适合语义判断，Hook 适合生命周期接线，脚本和 CI 适合�
 
 ### 项目材料单一权威
 
-长期事实只进入采用方 `semantic/`，正式产品和架构选择只进入采用方 design/ADR。插件不维护第二份跨项目知识库。
+长期事实只进入采用方 `.echo-semantic/`，正式产品和架构选择只进入采用方 design/ADR。插件不维护第二份跨项目知识库。
 
 ### 派生状态可丢弃
 
-预检、路由和继续包位于 Git 私有目录，绑定仓库事实并设置有效期。它们用于约束当前任务和恢复上下文，不进入版本控制。
+预检、路由和继续包位于 `.echo-semantic/`，绑定仓库事实并设置有效期；5 个运行态文件由 `.git/info/exclude` 排除。它们用于约束当前任务和恢复上下文。
 
 ### 按风险控制深度
 
@@ -475,7 +476,7 @@ Skill 适合语义判断，Hook 适合生命周期接线，脚本和 CI 适合�
 
 ## 权限与敏感信息
 
-- 插件只读取当前仓库、Git 私有状态和宿主本地配置，不上传项目内容；
+- 插件只读取当前仓库、`.echo-semantic/` 运行态和宿主本地配置，不上传项目内容；
 - 验收探针只有显式设置环境变量时才写入事件元数据；
 - 继续包只记录路径引用和摘要，不记录文件正文、完整对话、密钥或工具输出；
 - 三个专用 Agent 以只读模式投影；

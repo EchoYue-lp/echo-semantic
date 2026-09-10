@@ -4,10 +4,22 @@ id: discovery.initial-baseline
 kind: discovery
 source_snapshot:
   base_revision: efd7c18252b749d0d1b399bfbf449bf081e69e8c
-  content_digest: 677bbc9ea253c6fbb8c000981c28c7c3a94e5a8d4b0f7eb906169c77972c2d5f
+  content_digest: 5b21f4df7f4d3fc137da895bc2c4b805f9a57e690a3ab702e712dfed81327d13
 scope: 插件工作流、生命周期门禁和三宿主分发
-inspected_paths: [skills, agents, hooks, scripts, bin, action.yml, .codex-plugin, .cursor-plugin, .claude-plugin]
-candidate_refs: [map.semantic-workflow, map.lifecycle-enforcement, map.host-distribution]
+inspected_paths:
+  [
+    skills,
+    agents,
+    hooks,
+    scripts,
+    bin,
+    action.yml,
+    .codex-plugin,
+    .cursor-plugin,
+    .claude-plugin,
+  ]
+candidate_refs:
+  [map.semantic-workflow, map.lifecycle-enforcement, map.host-distribution]
 unresolved:
   - Cursor 窗口重载后的真实插件与 Hook 验收
   - Windows 三宿主安装和卸载验收

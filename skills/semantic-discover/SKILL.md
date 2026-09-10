@@ -12,7 +12,7 @@ description: >-
 ## 预检
 
 1. 调用 `semantic-contract` 取得对象合同和校验命令。
-2. 读取项目指令、当前 Git 状态、已有 `semantic/`、design 和 ADR。
+2. 读取项目指令、当前 Git 状态、已有 `.echo-semantic/`、design 和 ADR。
 3. 搜索用户入口、后台入口、状态权威、持久化、外部副作用、失败恢复和公共契约。
 4. 分类全部 Git 路径；生成代码、第三方代码和排除路径仍必须有明确分类与复查条件。
 

@@ -30,12 +30,12 @@ test("semantic-status 输出基线、路由和 Frontier", () => {
     "audits",
     "discovery",
   ]) {
-    mkdirSync(resolve(repository, `semantic/${directory}`), {
+    mkdirSync(resolve(repository, `.echo-semantic/${directory}`), {
       recursive: true,
     });
   }
   writeFileSync(
-    resolve(repository, "semantic/baseline.md"),
+    resolve(repository, ".echo-semantic/baseline.md"),
     "---\n" +
       "schema_version: 1\n" +
       "id: baseline.repository\n" +
@@ -64,7 +64,10 @@ test("semantic-status 输出基线、路由和 Frontier", () => {
     "discovery",
   ]) {
     writeFileSync(
-      resolve(repository, `semantic/${directory}/${directory}.example.md`),
+      resolve(
+        repository,
+        `.echo-semantic/${directory}/${directory}.example.md`,
+      ),
       "---\n" + `id: ${directory}.example\n` + "---\n\n# 状态测试\n",
       "utf8",
     );
@@ -80,7 +83,7 @@ test("semantic-status 输出基线、路由和 Frontier", () => {
     next: "semantic-verify",
     resolved: ["semantic-preflight"],
     open: ["semantic-verify"],
-    evidenceRefs: ["semantic/baseline.md"],
+    evidenceRefs: [".echo-semantic/baseline.md"],
   });
   const result = spawnSync("uv", ["run", script, "--root", repository], {
     encoding: "utf8",
@@ -92,10 +95,7 @@ test("semantic-status 输出基线、路由和 Frontier", () => {
   assert.equal(value.continuation.trusted, true);
   assert.ok(Array.isArray(value.next));
 
-  const routePath = resolve(
-    repository,
-    git(repository, "rev-parse", "--git-path", "echo-semantic/route.json"),
-  );
+  const routePath = resolve(repository, ".echo-semantic/route.json");
   mkdirSync(resolve(routePath, ".."), { recursive: true });
   writeFileSync(routePath, JSON.stringify({ route: "strict" }), "utf8");
   const malformedRoute = spawnSync(
@@ -115,12 +115,7 @@ test("semantic-status 输出基线、路由和 Frontier", () => {
 
   const continuationPath = resolve(
     repository,
-    git(
-      repository,
-      "rev-parse",
-      "--git-path",
-      "echo-semantic/continuation.json",
-    ),
+    ".echo-semantic/continuation.json",
   );
   const malformedContinuation = JSON.parse(
     readFileSync(continuationPath, "utf8"),
@@ -140,7 +135,7 @@ test("semantic-status 输出基线、路由和 Frontier", () => {
   assert.match(malformedValue.continuation.reasons.join("、"), /版本无效/);
 
   writeFileSync(
-    resolve(repository, "semantic/baseline.md"),
+    resolve(repository, ".echo-semantic/baseline.md"),
     "changed\n",
     "utf8",
   );

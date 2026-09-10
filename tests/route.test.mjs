@@ -55,9 +55,13 @@ test("路由器按基线和差异选择 bootstrap、fast、standard、strict", (
   git(root, "add", "src.txt");
   git(root, "-c", "commit.gpgsign=false", "commit", "-qm", "source");
   assert.equal(route(root, "codex").route, "bootstrap");
-  mkdirSync(resolve(root, "semantic"));
-  writeFileSync(resolve(root, "semantic/baseline.md"), "baseline\n", "utf8");
-  git(root, "add", "semantic/baseline.md");
+  mkdirSync(resolve(root, ".echo-semantic"), { recursive: true });
+  writeFileSync(
+    resolve(root, ".echo-semantic/baseline.md"),
+    "baseline\n",
+    "utf8",
+  );
+  git(root, "add", ".echo-semantic/baseline.md");
   git(root, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
   writeFileSync(resolve(root, "README.md"), "docs\n", "utf8");
   assert.equal(route(root, "codex").route, "fast");
@@ -75,9 +79,13 @@ test("未知宿主或缺少停止 Hook 时采用保守 bootstrap", () => {
   git(root, "init", "-q");
   git(root, "config", "user.email", "test@example.com");
   git(root, "config", "user.name", "Test");
-  mkdirSync(resolve(root, "semantic"));
-  writeFileSync(resolve(root, "semantic/baseline.md"), "baseline\n", "utf8");
-  git(root, "add", "semantic/baseline.md");
+  mkdirSync(resolve(root, ".echo-semantic"), { recursive: true });
+  writeFileSync(
+    resolve(root, ".echo-semantic/baseline.md"),
+    "baseline\n",
+    "utf8",
+  );
+  git(root, "add", ".echo-semantic/baseline.md");
   git(root, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
   writeFileSync(resolve(root, "runtime.rs"), "fn run() {}\n", "utf8");
   const state = route(root, "unknown");
@@ -93,9 +101,13 @@ test("运行时宿主探测失败时不沿用静态能力路由", () => {
   git(root, "init", "-q");
   git(root, "config", "user.email", "test@example.com");
   git(root, "config", "user.name", "Test");
-  mkdirSync(resolve(root, "semantic"));
-  writeFileSync(resolve(root, "semantic/baseline.md"), "baseline\n", "utf8");
-  git(root, "add", "semantic/baseline.md");
+  mkdirSync(resolve(root, ".echo-semantic"), { recursive: true });
+  writeFileSync(
+    resolve(root, ".echo-semantic/baseline.md"),
+    "baseline\n",
+    "utf8",
+  );
+  git(root, "add", ".echo-semantic/baseline.md");
   git(root, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
   writeFileSync(resolve(root, "Makefile"), "run:\n\ttrue\n", "utf8");
   const state = computeRoute(root, "codex", "manual", {

@@ -8,7 +8,7 @@ risk: high
 primary_focus: failure_concurrency
 focus: [contract_evidence, time_lifecycle]
 boundary: boundary.lifecycle-enforcement
-observed_at: source:677bbc9ea253c6fbb8c000981c28c7c3a94e5a8d4b0f7eb906169c77972c2d5f
+observed_at: source:5b21f4df7f4d3fc137da895bc2c4b805f9a57e690a3ab702e712dfed81327d13
 code_refs:
   - hooks/entry.mjs#function stop
   - skills/semantic-contract/scripts/verify_semantic.py#validate_change_evidence
@@ -38,7 +38,7 @@ resume 只恢复仍匹配当前仓库和分支的继续包。
 
 ## 触发、结果与副作用
 
-Claude Code 与 Cursor 在编辑前触发路径检查，三个宿主在停止前验证；只读取仓库与 Git 私有状态，失败时阻断当前动作。
+Claude Code 与 Cursor 在编辑前触发路径检查，三个宿主在停止前验证；只读取仓库与 `.echo-semantic/` 运行态，失败时阻断当前动作。
 
 ## 失败、重试与恢复
 

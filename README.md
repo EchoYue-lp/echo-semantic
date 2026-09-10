@@ -53,12 +53,12 @@ flowchart LR
   Host[Codex / Cursor / Claude Code] --> Adapter[Manifest、Hook 与 Agent 适配]
   Adapter --> Control[能力探测、风险路由与继续包]
   Control --> Skills[语义 Skill 与只读审查 Agent]
-  Skills --> Semantic[项目 semantic/]
+  Skills --> Semantic[项目 .echo-semantic/]
   Skills --> Design[项目 design / ADR]
-  Control --> Private[Git 私有任务状态]
+  Control --> Runtime[.echo-semantic/ 运行态文件]
   Semantic --> Verifier[确定性语义校验器]
   Design --> Verifier
-  Private --> Verifier
+  Runtime --> Verifier
   Verifier --> CI[项目 CI]
   Tests[Formatter / Lint / 类型 / 测试] --> CI
 ```
@@ -95,16 +95,17 @@ flowchart TD
 
 ## 状态与权威
 
-| 内容           | 位置                                   | 定位                                                            |
-| -------------- | -------------------------------------- | --------------------------------------------------------------- |
-| 长期语义事实   | 项目 `semantic/`                       | Capability、Behavior、Rule、Evidence、Finding、Audit 的唯一权威 |
-| 产品与架构选择 | 项目 design/ADR                        | “应该怎样”的正式权威                                            |
-| 当前任务预检   | `.git/echo-semantic/preflight.json`    | 绑定仓库、HEAD 和任务，最长 24 小时                             |
-| 当前风险路由   | `.git/echo-semantic/route.json`        | 可丢弃计算结果，最长 24 小时                                    |
-| 压缩恢复线索   | `.git/echo-semantic/continuation.json` | 绑定任务、分支和证据摘要，最长 7 天                             |
-| 实现质量       | Formatter、Lint、类型与测试            | 代码质量权威，语义 Skill 不替代                                 |
+| 内容           | 位置                                      | 定位                                                            |
+| -------------- | ----------------------------------------- | --------------------------------------------------------------- |
+| 长期语义事实   | 项目 `.echo-semantic/`                    | Capability、Behavior、Rule、Evidence、Finding、Audit 的唯一权威 |
+| 产品与架构选择 | 项目 design/ADR                           | “应该怎样”的正式权威                                            |
+| 用户可见状态   | `.echo-semantic/status.md`、`status.json` | 当前 Hook、路由、下一入口和更新时间                             |
+| 当前任务预检   | `.echo-semantic/preflight.json`           | 绑定仓库、HEAD 和任务，最长 24 小时                             |
+| 当前风险路由   | `.echo-semantic/route.json`               | 可丢弃计算结果，最长 24 小时                                    |
+| 压缩恢复线索   | `.echo-semantic/continuation.json`        | 绑定任务、分支和证据摘要，最长 7 天                             |
+| 实现质量       | Formatter、Lint、类型与测试               | 代码质量权威，语义 Skill 不替代                                 |
 
-短期状态损坏或失效只会要求重新预检、重新路由或丢弃恢复提示，不会改写项目长期语义事实。
+同一个 `.echo-semantic/` 同时保存长期语义材料和当前运行态；只有 `status.md`、`status.json`、`preflight.json`、`route.json`、`continuation.json` 这 5 个运行态文件写入 `.git/info/exclude`，不会提交。状态损坏或失效只会要求重新预检、重新路由或丢弃恢复提示。
 
 ## 能力
 
@@ -112,7 +113,7 @@ flowchart TD
 | -------------------- | ---------------------------------------------------------------- |
 | `semantic-preflight` | 写代码前完成复用、边界、允许路径、设计权威和验证矩阵预检         |
 | `semantic-status`    | 汇总基线、路由、预检、开放 Finding、失效 Audit 和下一步 Frontier |
-| `semantic-discover`  | 建立或修复项目自己的 `semantic/` 基线                            |
+| `semantic-discover`  | 建立或修复项目自己的 `.echo-semantic/` 基线                      |
 | `semantic-diff`      | 将代码差异映射到能力、规则、失效审查和验证范围                   |
 | `semantic-audit`     | 对高风险边界执行有界、可反证的只读审查                           |
 | `semantic-decide`    | 只处理无法由证据决定的产品预期和风险接受                         |
@@ -171,13 +172,13 @@ Codex 与 Claude Code 安装后需要新建会话。Cursor 安装后需要重新
 
 ## 项目采用
 
-1. 调用 `semantic-discover`，在目标仓库建立 `semantic/`。
+1. 调用 `semantic-discover`，在目标仓库建立 `.echo-semantic/`。
 2. 每个代码任务在生成前调用 `semantic-preflight`。
 3. 代码形成首个差异后调用 `semantic-diff`，高风险时进入 `semantic-audit`。
 4. 上下文压缩前由 Hook 保存继续包，恢复时由 Hook 校验证据并重新注入 Frontier。
 5. 提交前调用 `semantic-verify`，并运行项目原有工程门禁。
 
-生成前预检状态只保存在目标仓库的 Git 私有目录中，不进入版本控制，也不成为第二份语义权威。
+生成前预检状态写入同一个 `.echo-semantic/`，由 `.git/info/exclude` 只排除运行态文件；长期语义材料继续提交版本控制。
 
 会话开始时插件运行 `runtime/route.mjs`，先调用宿主运行时探测，再按当前项目和宿主能力选择 `bootstrap`、`fast`、`standard`、`strict` 或 `idle` 路由；
 需要查看完整状态时调用 `semantic-status`：
@@ -236,7 +237,7 @@ npm run verify
 - 不提供数据库、常驻服务或第二套任务运行时。
 - 当前不提供 MCP Server；本地文件和 Git 已足以完成确定性校验。
 - Hook 不修改业务代码，也不自动生成语义结论。
-- 只有项目自己的 `semantic/` 保存 Capability、Behavior、Rule、Evidence、Finding 和 Audit。
+- 项目只使用一个 `.echo-semantic/` 目录；长期语义材料提交 Git，运行态文件本地排除。
 
 ## 许可证
 

@@ -56,7 +56,7 @@ jobs:
 
 Action 会调用确定性校验器，检查：
 
-1. `semantic/` 目录、对象和必填字段；
+1. `.echo-semantic/` 目录、对象和必填字段；
 2. 当前源码摘要与 Baseline 是否一致；
 3. 当前与历史源码引用是否可解析；
 4. Git 路径是否全部且唯一分类；
@@ -68,7 +68,7 @@ Action 会调用确定性校验器，检查：
 
 ## 初次采用
 
-第一次引入完整 `semantic/` 时仍应提供 Pull Request 的基准 SHA。若项目正在分阶段建立基线，可以暂时设置：
+第一次引入完整 `.echo-semantic/` 时仍应提供 Pull Request 的基准 SHA。若项目正在分阶段建立基线，可以暂时设置：
 
 ```yaml
 require-change-evidence: "false"
@@ -87,8 +87,8 @@ Pull Request；若同时监听 Push，需要为全零 SHA 提供明确的基准�
 
 采用方式有两种：
 
-- 一套根级 `semantic/` 治理整个 monorepo；
-- 每个独立 Git 子仓库分别维护自己的 `semantic/`。
+- 一套根级 `.echo-semantic/` 治理整个 monorepo；
+- 每个独立 Git 子仓库分别维护自己的 `.echo-semantic/`。
 
 当前不支持在同一个 Git 根内维护多个互相独立的 Baseline。
 

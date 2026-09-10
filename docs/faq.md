@@ -12,13 +12,13 @@ Skill 适合复用分析、边界判断和风险审查，但不能证明每次�
 
 不会。语义 Skill 不模拟工程工具；`semantic-verify` 只核对实际执行的工程验证证据。
 
-## 每个项目都必须提交 `semantic/` 吗？
+## 每个项目都必须提交 `.echo-semantic/` 吗？
 
-只有采用语义治理的项目需要。插件发现但未采用的项目不会被 Stop 门禁阻断；要获得持续追踪和 CI 能力，应把项目自己的 `semantic/` 纳入版本控制。
+只有采用语义治理的项目需要。插件发现但未采用的项目不会被 Stop 门禁阻断；要获得持续追踪和 CI 能力，应把项目自己的 `.echo-semantic/` 纳入版本控制。
 
-## `semantic/` 会不会成为第二套架构文档？
+## `.echo-semantic/` 会不会成为第二套架构文档？
 
-不会。正式 design/ADR 继续决定产品和架构；`semantic/` 连接当前行为、规则、证据和审查状态。预检只引用设计权威，不复制它。
+不会。正式 design/ADR 继续决定产品和架构；`.echo-semantic/` 连接当前行为、规则、证据和审查状态。预检只引用设计权威，不复制它。
 
 ## 为什么还需要 `semantic-preflight`？
 
@@ -70,6 +70,6 @@ Echo Semantic 不复制 Supreme 的工程阶段状态，Supreme 也不替代项�
 一致。GitHub 仓库名、插件 ID 和 marketplace 名都是 `echo-semantic`，展示名是 `Echo Semantic`。旧插件 ID
 `echo-coding-semantic-governance` 只保留在安装器的清理兼容列表中。
 
-## 可以把 `semantic/` 当作生成文档随时重建吗？
+## 可以把 `.echo-semantic/` 当作生成文档随时重建吗？
 
 不建议。Discovery 可以修复和扩大基线，但 Behavior 中人的确认期望、Finding 的处置证据和 Audit 的 revision 记录具有长期价值。应像代码一样审查和版本化。

@@ -5,17 +5,15 @@ import {
   closeSync,
   existsSync,
   lstatSync,
-  mkdirSync,
   openSync,
   realpathSync,
   readFileSync,
   readSync,
-  renameSync,
   unlinkSync,
-  writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { projectStatePath, writeProjectJson } from "./project-state.mjs";
 
 export const CONTINUATION_SCHEMA_VERSION = 1;
 const PLUGIN_ID = "echo-semantic";
@@ -60,13 +58,7 @@ function canonicalRoot(root) {
 }
 
 export function continuationPath(root) {
-  const value = git(root, [
-    "rev-parse",
-    "--git-path",
-    `${PLUGIN_ID}/continuation.json`,
-  ]);
-  if (!value) return null;
-  return isAbsolute(value) ? resolve(value) : resolve(root, value);
+  return projectStatePath(root, "continuation.json");
 }
 
 function evidenceTarget(root, reference) {
@@ -259,10 +251,7 @@ export function writeContinuation(root, packet) {
   };
   const storedErrors = validatePacket(repositoryRoot, stored, true);
   if (storedErrors.length) throw new Error(storedErrors.join("；"));
-  mkdirSync(dirname(destination), { recursive: true });
-  const temporary = `${destination}.${process.pid}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify(stored, null, 2)}\n`, "utf8");
-  renameSync(temporary, destination);
+  writeProjectJson(repositoryRoot, "continuation.json", stored);
   return destination;
 }
 
@@ -314,8 +303,8 @@ export function formatContinuation(packet) {
 
 export function checkpointFromPreflight(root, preflight, route) {
   if (!preflight || !isContinuationTaskId(preflight.taskId)) return null;
-  const evidenceRefs = existsSync(resolve(root, "semantic/baseline.md"))
-    ? ["semantic/baseline.md"]
+  const evidenceRefs = existsSync(resolve(root, ".echo-semantic/baseline.md"))
+    ? [".echo-semantic/baseline.md"]
     : [];
   const objectDirectories = [
     "maps",
@@ -331,7 +320,7 @@ export function checkpointFromPreflight(root, preflight, route) {
     : []) {
     if (typeof reference !== "string") return null;
     const candidate = objectDirectories
-      .map((directory) => `semantic/${directory}/${reference}.md`)
+      .map((directory) => `.echo-semantic/${directory}/${reference}.md`)
       .find((value) => existsSync(resolve(root, value)));
     if (!candidate) return null;
     evidenceRefs.push(candidate);

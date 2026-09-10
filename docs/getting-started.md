@@ -94,7 +94,7 @@ ls -l ~/.cursor/plugins/local/echo-semantic
 Agent 应在目标项目创建：
 
 ```text
-semantic/
+.echo-semantic/
 ├── README.md
 ├── baseline.md
 ├── maps/
@@ -106,7 +106,7 @@ semantic/
 └── discovery/
 ```
 
-将 `semantic/` 与项目代码一起纳入版本控制。它是项目长期语义事实，不属于插件安装目录。
+将 `.echo-semantic/` 与项目代码一起纳入版本控制。它是项目长期语义事实，不属于插件安装目录。
 
 ## 完成第一次受治理变更
 
@@ -150,7 +150,7 @@ node bin/install.mjs uninstall cursor
 node bin/install.mjs uninstall claude-code
 ```
 
-卸载插件不会删除任何采用方项目的 `semantic/`，也不会删除项目自己的 design、ADR 或工程配置。
+卸载插件不会删除任何采用方项目的 `.echo-semantic/`，也不会删除项目自己的 design、ADR 或工程配置。
 
 ## 下一步
 

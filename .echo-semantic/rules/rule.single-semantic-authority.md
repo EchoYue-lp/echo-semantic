@@ -7,8 +7,9 @@ expectation: inferred
 risk: high
 primary_focus: state_authority
 focus: [contract_evidence]
-observed_at: source:677bbc9ea253c6fbb8c000981c28c7c3a94e5a8d4b0f7eb906169c77972c2d5f
-behavior_refs: [behavior.preflight-before-write, behavior.multi-host-installation]
+observed_at: source:5b21f4df7f4d3fc137da895bc2c4b805f9a57e690a3ab702e712dfed81327d13
+behavior_refs:
+  [behavior.preflight-before-write, behavior.multi-host-installation]
 code_refs:
   - docs/adr/0001-multi-host-layered-enforcement.md#决策
   - skills/semantic-contract/references/semantic-artifact-contract.md#语义材料合同
@@ -20,7 +21,7 @@ finding_refs: []
 
 ## 不变量或唯一权威
 
-项目 `semantic/` 是业务语义唯一长期权威；Skill、Hook、安装状态和生成视图不能重新拥有业务事实。
+项目 `.echo-semantic/` 是业务语义与当前运行态的唯一项目目录；Skill、Hook、安装状态和生成视图不能重新拥有第二份业务事实。
 
 ## 适用行为
 
@@ -28,7 +29,7 @@ finding_refs: []
 
 ## 当前实现
 
-七个 Skill 共享一份合同，三个 manifest 只引用同一目录；预检状态位于 Git 私有目录。
+七个 Skill 共享一份合同，三个 manifest 只引用同一目录；预检、路由和继续包位于同一 `.echo-semantic/`，仅运行态文件被排除出 Git。
 
 ## 期望行为
 

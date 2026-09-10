@@ -42,28 +42,46 @@ test("SessionStart 为不同宿主输出对应上下文字段", () => {
   );
 });
 
+test("SessionStart 在项目根生成用户可见状态", () => {
+  const repository = mkdtempSync(
+    resolve(tmpdir(), "echo-semantic-visible-status-"),
+  );
+  git(repository, "init", "-q");
+  const result = spawnSync("node", [hook, "codex", "session-start"], {
+    cwd: repository,
+    input: JSON.stringify({ cwd: repository, source: "startup" }),
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const state = JSON.parse(
+    readFileSync(resolve(repository, ".echo-semantic/status.json"), "utf8"),
+  );
+  assert.equal(state.host, "codex");
+  assert.equal(state.event, "startup");
+  assert.equal(state.state, "ready");
+  assert.match(
+    readFileSync(resolve(repository, ".echo-semantic/status.md"), "utf8"),
+    /Echo Semantic/,
+  );
+  assert.equal(git(repository, "status", "--short"), "");
+});
+
 test("已采用语义基线的项目阻断预检范围外编辑", () => {
   const repository = mkdtempSync(resolve(tmpdir(), "echo-semantic-hook-"));
   git(repository, "init", "-q");
-  mkdirSync(resolve(repository, "semantic"));
+  mkdirSync(resolve(repository, ".echo-semantic"));
   writeFileSync(
-    resolve(repository, "semantic/baseline.md"),
+    resolve(repository, ".echo-semantic/baseline.md"),
     "baseline\n",
     "utf8",
   );
   git(repository, "config", "user.email", "test@example.com");
   git(repository, "config", "user.name", "Test");
-  git(repository, "add", "semantic/baseline.md");
+  git(repository, "add", ".echo-semantic/baseline.md");
   git(repository, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
   const head = git(repository, "rev-parse", "HEAD");
   const canonicalRepository = realpathSync(repository);
-  const gitPath = git(
-    repository,
-    "rev-parse",
-    "--git-path",
-    "echo-semantic/preflight.json",
-  );
-  const state = resolve(repository, gitPath);
+  const state = resolve(repository, ".echo-semantic/preflight.json");
   mkdirSync(resolve(state, ".."), { recursive: true });
   writeFileSync(
     state,
@@ -99,24 +117,18 @@ test("失败 Stop 不被去重且保留预检供连续重试", () => {
   git(repository, "init", "-q");
   git(repository, "config", "user.email", "test@example.com");
   git(repository, "config", "user.name", "Test");
-  mkdirSync(resolve(repository, "semantic"));
+  mkdirSync(resolve(repository, ".echo-semantic"));
   writeFileSync(
-    resolve(repository, "semantic/baseline.md"),
+    resolve(repository, ".echo-semantic/baseline.md"),
     "无效基线\n",
     "utf8",
   );
-  git(repository, "add", "semantic/baseline.md");
+  git(repository, "add", ".echo-semantic/baseline.md");
   git(repository, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
   const head = git(repository, "rev-parse", "HEAD");
   const canonicalRepository = realpathSync(repository);
   writeFileSync(resolve(repository, "change.txt"), "change\n", "utf8");
-  const gitPath = git(
-    repository,
-    "rev-parse",
-    "--git-path",
-    "echo-semantic/preflight.json",
-  );
-  const state = resolve(repository, gitPath);
+  const state = resolve(repository, ".echo-semantic/preflight.json");
   mkdirSync(resolve(state, ".."), { recursive: true });
   writeFileSync(
     state,
@@ -145,13 +157,7 @@ test("失败 Stop 不被去重且保留预检供连续重试", () => {
 test("明确的新会话清除上一任务的预检状态", () => {
   const repository = mkdtempSync(resolve(tmpdir(), "echo-semantic-session-"));
   git(repository, "init", "-q");
-  const gitPath = git(
-    repository,
-    "rev-parse",
-    "--git-path",
-    "echo-semantic/preflight.json",
-  );
-  const state = resolve(repository, gitPath);
+  const state = resolve(repository, ".echo-semantic/preflight.json");
   mkdirSync(resolve(state, ".."), { recursive: true });
   writeFileSync(state, JSON.stringify({ schemaVersion: 1 }), "utf8");
   const result = spawnSync("node", [hook, "cursor", "session-start"], {
@@ -168,13 +174,7 @@ test("缺少宿主 source 时保守保留上一任务的预检状态", () => {
     resolve(tmpdir(), "echo-semantic-session-unknown-source-"),
   );
   git(repository, "init", "-q");
-  const gitPath = git(
-    repository,
-    "rev-parse",
-    "--git-path",
-    "echo-semantic/preflight.json",
-  );
-  const state = resolve(repository, gitPath);
+  const state = resolve(repository, ".echo-semantic/preflight.json");
   mkdirSync(resolve(state, ".."), { recursive: true });
   writeFileSync(state, JSON.stringify({ schemaVersion: 1 }), "utf8");
   const result = spawnSync("node", [hook, "cursor", "session-start"], {
@@ -189,13 +189,7 @@ test("缺少宿主 source 时保守保留上一任务的预检状态", () => {
 test("resume 和 compact 不消费当前任务的预检状态", () => {
   const repository = mkdtempSync(resolve(tmpdir(), "echo-semantic-resume-"));
   git(repository, "init", "-q");
-  const gitPath = git(
-    repository,
-    "rev-parse",
-    "--git-path",
-    "echo-semantic/preflight.json",
-  );
-  const state = resolve(repository, gitPath);
+  const state = resolve(repository, ".echo-semantic/preflight.json");
   mkdirSync(resolve(state, ".."), { recursive: true });
   writeFileSync(state, JSON.stringify({ schemaVersion: 1 }), "utf8");
   for (const source of ["resume", "compact"]) {

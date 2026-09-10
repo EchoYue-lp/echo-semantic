@@ -11,7 +11,7 @@ description: >-
 
 ## 工作流
 
-1. 读取项目 Git 状态和 `semantic/` 是否存在。
+1. 读取项目 Git 状态和 `.echo-semantic/` 是否存在。
 2. 在本 Skill 根目录运行：
 
 ```bash

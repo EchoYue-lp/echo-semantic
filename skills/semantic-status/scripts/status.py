@@ -65,10 +65,7 @@ def metadata(path: Path) -> dict[str, Any]:
 
 
 def private_json(root: Path, name: str) -> dict[str, Any] | None:
-    raw = git(root, "rev-parse", "--git-path", f"{PLUGIN_ID}/{name}")
-    path = Path(raw)
-    if not path.is_absolute():
-        path = root / path
+    path = root / ".echo-semantic" / name
     if not path.is_file():
         return None
     try:
@@ -359,7 +356,7 @@ def next_actions(
 
 
 def status(root: Path) -> dict[str, Any]:
-    semantic_root = root / "semantic"
+    semantic_root = root / ".echo-semantic"
     baseline = None
     errors: list[str] = []
     if (semantic_root / "baseline.md").is_file():

@@ -14,7 +14,7 @@ description: >-
 - 目标仓库根目录和生效的项目指令；
 - 用户目标、授权范围和现有设计或计划；
 - 当前分支、提交标识、未提交状态；
-- 可选的现有 `semantic/` 基线。
+- 可选的现有 `.echo-semantic/` 基线。
 
 ## 预检
 
@@ -51,7 +51,7 @@ Windows 使用 `py -3 scripts/preflight.py ...`，参数合同不变。
 - `--design-authority <现有或新设计路径>`、`--adr <ADR 路径>`。
 - 新增边界时用 `--new-boundary-reason <理由>` 替换 `--reuse-existing-boundary`。
 
-记录写入目标仓库 Git 私有目录，不进入版本控制。脚本自动生成任务标识；SessionStart、无变化 Stop 或成功 Stop 会消费
+记录写入目标仓库 `.echo-semantic/preflight.json`，并自动加入 `.git/info/exclude`，不进入版本控制。脚本自动生成任务标识；SessionStart、无变化 Stop 或成功 Stop 会消费
 该记录，失败 Stop 保留以便修复后重试。记录只供当前任务的 Hook 和校验器检查允许路径、新鲜度与高风险依据。
 
 ## 衔接

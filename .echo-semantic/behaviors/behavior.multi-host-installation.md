@@ -8,7 +8,7 @@ risk: medium
 primary_focus: time_lifecycle
 focus: [permission_external, data_durability]
 boundary: boundary.host-distribution
-observed_at: source:677bbc9ea253c6fbb8c000981c28c7c3a94e5a8d4b0f7eb906169c77972c2d5f
+observed_at: source:5b21f4df7f4d3fc137da895bc2c4b805f9a57e690a3ab702e712dfed81327d13
 code_refs:
   - bin/install.mjs#function main
   - .codex-plugin/plugin.json#echo-semantic

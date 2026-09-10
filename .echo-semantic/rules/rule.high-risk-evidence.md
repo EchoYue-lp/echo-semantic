@@ -7,8 +7,9 @@ expectation: inferred
 risk: high
 primary_focus: contract_evidence
 focus: [state_authority, failure_concurrency]
-observed_at: source:677bbc9ea253c6fbb8c000981c28c7c3a94e5a8d4b0f7eb906169c77972c2d5f
-behavior_refs: [behavior.preflight-before-write, behavior.post-change-verification]
+observed_at: source:5b21f4df7f4d3fc137da895bc2c4b805f9a57e690a3ab702e712dfed81327d13
+behavior_refs:
+  [behavior.preflight-before-write, behavior.post-change-verification]
 code_refs:
   - skills/semantic-contract/scripts/verify_semantic.py#infer_signals
   - skills/semantic-contract/scripts/verify_semantic.py#validate_change_evidence

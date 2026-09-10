@@ -13,7 +13,7 @@
 
 1. 更新 `CHANGELOG.md`，把 Unreleased 内容归入目标版本；
 2. 确认 README、快速开始、宿主支持、命令参考和故障排查与当前行为一致；
-3. 确认 `semantic/baseline.md` 摘要、源码引用和路径分类有效；
+3. 确认 `.echo-semantic/baseline.md` 摘要、源码引用和路径分类有效；
 4. 运行完整插件门禁：
 
 ```bash

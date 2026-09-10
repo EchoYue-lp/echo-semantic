@@ -1,17 +1,16 @@
 #!/usr/bin/env node
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
-import { resolve, dirname, join, extname, isAbsolute } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve, extname } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { loadCapabilities } from "./capabilities/load.mjs";
 import { probeHost } from "./capabilities/probe.mjs";
+import {
+  projectStatePath,
+  writeProjectJson,
+  writeVisibleStatus,
+} from "./project-state.mjs";
 
 const pluginId = "echo-semantic";
 
@@ -33,13 +32,7 @@ function gitStatus(root) {
 }
 
 function statePath(root) {
-  const value = git(root, [
-    "rev-parse",
-    "--git-path",
-    `${pluginId}/route.json`,
-  ]);
-  if (!value) return null;
-  return isAbsolute(value) ? resolve(value) : resolve(root, value);
+  return projectStatePath(root, "route.json");
 }
 
 function changedPaths(root) {
@@ -102,15 +95,8 @@ function isFastPath(path) {
   );
 }
 
-function writeState(path, value) {
-  if (!path) return;
-  mkdirSync(dirname(path), { recursive: true });
-  const temporary = join(
-    dirname(path),
-    `.${pluginId}-route.${process.pid}.tmp`,
-  );
-  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  renameSync(temporary, path);
+function writeState(root, value) {
+  writeProjectJson(root, "route.json", value);
 }
 
 export function computeRoute(
@@ -126,7 +112,7 @@ export function computeRoute(
   } catch (error) {
     runtimeProbe = { detected: false, error: error.message };
   }
-  const baseline = existsSync(resolve(root, "semantic/baseline.md"));
+  const baseline = existsSync(resolve(root, ".echo-semantic/baseline.md"));
   const paths = changedPaths(root);
   const high = classify(paths);
   const conservative =
@@ -184,7 +170,18 @@ export function computeRoute(
     runtimeProbe,
     updatedAt: new Date().toISOString(),
   };
-  writeState(statePath(root), state);
+  writeState(root, state);
+  writeVisibleStatus(root, {
+    state: "ready",
+    event,
+    host,
+    route,
+    next: skills,
+    message:
+      runtimeProbe?.detected === true
+        ? "路由已计算"
+        : "宿主运行时未确认，采用保守路径",
+  });
   return state;
 }
 

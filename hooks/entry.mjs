@@ -12,6 +12,10 @@ import {
   readContinuation,
   taskIdFromInput,
 } from "../runtime/continuation.mjs";
+import {
+  projectStatePath,
+  writeVisibleStatus,
+} from "../runtime/project-state.mjs";
 
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const verifier = resolve(
@@ -47,13 +51,7 @@ function repositoryRoot(cwd) {
 }
 
 function statePath(root) {
-  const value = git(root, [
-    "rev-parse",
-    "--git-path",
-    `${pluginId}/preflight.json`,
-  ]);
-  if (!value) return null;
-  return isAbsolute(value) ? resolve(value) : resolve(root, value);
+  return projectStatePath(root, "preflight.json");
 }
 
 function loadState(root) {
@@ -132,7 +130,7 @@ function emit(value = {}) {
 function sessionContext(host, route, continuation) {
   const text =
     "已启用 Echo Semantic。修改代码前调用 semantic-preflight；" +
-    "已有 semantic/ 时在首个差异后调用 semantic-diff，完成前调用 semantic-verify。" +
+    "已有 .echo-semantic/ 基线时在首个差异后调用 semantic-diff，完成前调用 semantic-verify。" +
     "Skill 不替代 formatter、Lint、类型、测试、契约和集成门禁。" +
     (route
       ? ` 当前路由：${route.route}；建议入口：${route.skills.join("、")}。`
@@ -181,8 +179,22 @@ function pathAllowed(relativePath, allowedPaths) {
   );
 }
 
-function deny(reason) {
+function deny(reason, root, host = "unknown", event = "unknown") {
   process.stderr.write(`[${pluginId}] ${reason}\n`);
+  if (root) {
+    try {
+      writeVisibleStatus(root, {
+        state: "blocked",
+        event,
+        host,
+        message: reason,
+      });
+    } catch (error) {
+      process.stderr.write(
+        `[${pluginId}] 无法写入可见状态：${error.message}\n`,
+      );
+    }
+  }
   emit({ decision: "block", reason });
   process.exitCode = 2;
 }
@@ -196,8 +208,8 @@ function hasChanges(root) {
   return status === null || status.length > 0;
 }
 
-function checkEditScope(root, input) {
-  if (!existsSync(resolve(root, "semantic/baseline.md"))) {
+function checkEditScope(root, input, host) {
+  if (!existsSync(resolve(root, ".echo-semantic/baseline.md"))) {
     emit();
     return;
   }
@@ -208,37 +220,65 @@ function checkEditScope(root, input) {
   }
   const relativePath = normalizeEditedPath(root, edited);
   if (!relativePath) {
-    deny(`编辑路径不在当前仓库：${edited}`);
+    deny(`编辑路径不在当前仓库：${edited}`, root, host, "pre-edit");
     return;
   }
   const state = validState(root);
   if (!state) {
-    deny(`修改 ${relativePath} 前没有当前任务的有效 semantic-preflight 记录`);
+    deny(
+      `修改 ${relativePath} 前没有当前任务的有效 semantic-preflight 记录`,
+      root,
+      host,
+      "pre-edit",
+    );
     return;
   }
   if (!pathAllowed(relativePath, state.allowedPaths)) {
-    deny(`修改路径超出 semantic-preflight 允许范围：${relativePath}`);
+    deny(
+      `修改路径超出 semantic-preflight 允许范围：${relativePath}`,
+      root,
+      host,
+      "pre-edit",
+    );
     return;
   }
+  writeVisibleStatus(root, {
+    state: "ready",
+    event: "pre-edit",
+    host,
+    message: `允许路径：${relativePath}`,
+  });
   emit();
 }
 
-function stop(root, input) {
-  if (!existsSync(resolve(root, "semantic/baseline.md"))) {
+function stop(root, input, host) {
+  if (!existsSync(resolve(root, ".echo-semantic/baseline.md"))) {
     clearState(root);
     clearContinuation(root);
+    writeVisibleStatus(root, {
+      state: "idle",
+      event: "stop",
+      host,
+      message: "项目尚未采用 .echo-semantic/ 基线",
+    });
     emit();
     return;
   }
   if (!hasChanges(root)) {
     clearState(root);
     clearContinuation(root);
+    writeVisibleStatus(root, {
+      state: "idle",
+      event: "stop",
+      host,
+      message: "没有待验证的工作树变化",
+    });
     emit();
     return;
   }
   const state = validState(root);
   if (!state || typeof state.baseRevision !== "string") {
-    deny("仓库已有变化但没有有效 semantic-preflight 记录");
+    deny("仓库已有变化但没有有效 semantic-preflight 记录", root, host, "stop");
     return;
   }
   const result = spawnSync(
@@ -257,11 +297,17 @@ function stop(root, input) {
   );
   if (result.status !== 0) {
     const detail = (result.stderr || result.stdout || "校验器不可用").trim();
-    deny(`语义完成门禁未通过：${detail}`);
+    deny(`语义完成门禁未通过：${detail}`, root, host, "stop");
     return;
   }
   clearState(root);
   clearContinuation(root);
+  writeVisibleStatus(root, {
+    state: "idle",
+    event: "stop",
+    host,
+    message: "语义完成门禁通过",
+  });
   emit();
 }
 
@@ -284,6 +330,22 @@ const [host, event] = process.argv.slice(2);
 const input = readInput();
 probe(host ?? "unknown", event ?? "unknown", input);
 const root = repositoryRoot(input.cwd || process.cwd());
+
+if (
+  root &&
+  ["session-start", "pre-edit", "pre-compact", "stop"].includes(event)
+) {
+  try {
+    writeVisibleStatus(root, {
+      state: "working",
+      event,
+      host: host || "unknown",
+      message: "Hook 正在处理",
+    });
+  } catch (error) {
+    process.stderr.write(`[${pluginId}] 无法写入可见状态：${error.message}\n`);
+  }
+}
 
 if (event === "session-start") {
   if (root && shouldResetPreflight(input)) {
@@ -313,9 +375,9 @@ if (event === "session-start") {
 } else if (!root) {
   emit();
 } else if (event === "pre-edit") {
-  checkEditScope(root, input);
+  checkEditScope(root, input, host);
 } else if (event === "stop") {
-  stop(root, input);
+  stop(root, input, host);
 } else {
   emit();
 }

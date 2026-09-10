@@ -17,16 +17,16 @@
 
 ## 设计与维护
 
-| 文档                                                                                 | 用途                                                 |
-| ------------------------------------------------------------------------------------ | ---------------------------------------------------- |
-| [项目架构与状态流转设计](supreme/specs/plugin-architecture/design.md)                | 完整架构、状态图、流程图、时序图、失败降级和验收标准 |
-| [多宿主适配](multi-host-adapters.md)                                                 | 三端发现、Hook、Agent 和安装投影差异                 |
-| [ADR 0001](adr/0001-multi-host-layered-enforcement.md)                               | 记录分层语义治理架构的选择理由                       |
-| [语义材料合同](../skills/semantic-contract/references/semantic-artifact-contract.md) | `semantic/` 对象、字段、引用、快照和高风险门禁规范   |
-| [贡献指南](../CONTRIBUTING.md)                                                       | 开发环境、边界、验证和 Pull Request 要求             |
-| [安全说明](../SECURITY.md)                                                           | 本地威胁模型、敏感信息边界和漏洞报告方式             |
-| [社区行为规范](../CODE_OF_CONDUCT.md)                                                | 公共讨论和协作行为要求                               |
-| [变更记录](../CHANGELOG.md)                                                          | 发布能力和不兼容变化记录                             |
+| 文档                                                                                 | 用途                                                     |
+| ------------------------------------------------------------------------------------ | -------------------------------------------------------- |
+| [项目架构与状态流转设计](supreme/specs/plugin-architecture/design.md)                | 完整架构、状态图、流程图、时序图、失败降级和验收标准     |
+| [多宿主适配](multi-host-adapters.md)                                                 | 三端发现、Hook、Agent 和安装投影差异                     |
+| [ADR 0001](adr/0001-multi-host-layered-enforcement.md)                               | 记录分层语义治理架构的选择理由                           |
+| [语义材料合同](../skills/semantic-contract/references/semantic-artifact-contract.md) | `.echo-semantic/` 对象、字段、引用、快照和高风险门禁规范 |
+| [贡献指南](../CONTRIBUTING.md)                                                       | 开发环境、边界、验证和 Pull Request 要求                 |
+| [安全说明](../SECURITY.md)                                                           | 本地威胁模型、敏感信息边界和漏洞报告方式                 |
+| [社区行为规范](../CODE_OF_CONDUCT.md)                                                | 公共讨论和协作行为要求                                   |
+| [变更记录](../CHANGELOG.md)                                                          | 发布能力和不兼容变化记录                                 |
 
 ## 阅读路径
 

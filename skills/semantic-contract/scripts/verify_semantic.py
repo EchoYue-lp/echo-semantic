@@ -28,6 +28,14 @@ from governance_contract import AuthorityError, validate_design_authority
 
 SCHEMA_VERSION = 1
 PLUGIN_ID = "echo-semantic"
+SEMANTIC_DIRECTORY = ".echo-semantic"
+RUNTIME_STATE_FILES = {
+    "status.md",
+    "status.json",
+    "preflight.json",
+    "route.json",
+    "continuation.json",
+}
 KIND_BY_DIRECTORY = {
     "maps": "capability_map",
     "behaviors": "behavior",
@@ -371,7 +379,12 @@ def collect_documents(
     if not semantic_root.is_dir():
         add_error(errors, semantic_root, "语义目录不存在")
         return documents
-    allowed = {"README.md", "baseline.md", *REQUIRED_DIRECTORIES}
+    allowed = {
+        "README.md",
+        "baseline.md",
+        *REQUIRED_DIRECTORIES,
+        *RUNTIME_STATE_FILES,
+    }
     try:
         root_entries = list(semantic_root.iterdir())
     except OSError as error:
@@ -911,7 +924,9 @@ def git_file_paths(root: Path) -> list[str]:
     return sorted(
         path
         for path in raw.decode("utf-8", errors="strict").split("\0")
-        if path and path != "semantic" and not path.startswith("semantic/")
+        if path
+        and path != SEMANTIC_DIRECTORY
+        and not path.startswith(f"{SEMANTIC_DIRECTORY}/")
     )
 
 
@@ -988,10 +1003,7 @@ def validate_strict_snapshot(
 
 
 def preflight_path(root: Path) -> Path:
-    raw = run_git(root, "rev-parse", "--git-path", f"{PLUGIN_ID}/preflight.json")
-    value = str(raw).strip()
-    path = Path(value)
-    return path.resolve() if path.is_absolute() else (root / path).resolve()
+    return (root / ".echo-semantic" / "preflight.json").resolve()
 
 
 def load_preflight(root: Path) -> dict[str, Any] | None:
@@ -1139,9 +1151,11 @@ def validate_change_evidence(
     code_paths = [
         path
         for path in paths
-        if path != "semantic" and not path.startswith("semantic/")
+        if path != SEMANTIC_DIRECTORY and not path.startswith(f"{SEMANTIC_DIRECTORY}/")
     ]
-    semantic_paths = [path for path in paths if path.startswith("semantic/")]
+    semantic_paths = [
+        path for path in paths if path.startswith(f"{SEMANTIC_DIRECTORY}/")
+    ]
     if not code_paths:
         return
 
@@ -1209,7 +1223,7 @@ def validate_change_evidence(
         path
         for path in semantic_paths
         if any(
-            path.startswith(f"semantic/{directory}/")
+            path.startswith(f"{SEMANTIC_DIRECTORY}/{directory}/")
             for directory in ("maps", "behaviors", "rules", "evidence", "audits")
         )
     ]
@@ -1275,7 +1289,7 @@ def validate_repository(
     root: Path, strict_snapshot: bool = False, base: str | None = None
 ) -> list[str]:
     errors: list[str] = []
-    semantic_root = root / "semantic"
+    semantic_root = root / SEMANTIC_DIRECTORY
     documents = collect_documents(semantic_root, errors)
     for path, kind, data, body in documents:
         validate_common(path, kind, data, body, errors)
@@ -1338,7 +1352,7 @@ def run_self_test() -> int:
             check=True,
         )
         revision = str(run_git(root, "rev-parse", "HEAD")).strip()
-        semantic = root / "semantic"
+        semantic = root / SEMANTIC_DIRECTORY
         for directory in REQUIRED_DIRECTORIES:
             (semantic / directory).mkdir(parents=True)
         (semantic / "README.md").write_text("# 自测语义材料\n", encoding="utf-8")
@@ -1573,7 +1587,7 @@ def main() -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    print(f"语义治理校验通过：{root / 'semantic'}")
+    print(f"语义治理校验通过：{root / SEMANTIC_DIRECTORY}")
     return 0
 
 

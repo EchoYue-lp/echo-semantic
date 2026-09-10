@@ -24,12 +24,12 @@ Echo Semantic 是运行在开发者本机的 Coding Agent 插件，不是公网�
 插件会读取：
 
 - 当前 Git 仓库的路径、HEAD、分支、状态和文件；
-- 项目 `semantic/`、design/ADR 和短期 Git 私有状态；
+- 项目 `.echo-semantic/`、design/ADR 和短期运行态；
 - 宿主命令、版本和本地插件配置。
 
 插件会写入：
 
-- 项目 Git 私有目录下的 `echo-semantic/` 短期状态；
+- 项目 `.echo-semantic/` 下的 5 个运行态文件；
 - `~/.echo-semantic/install-state.json`；
 - 宿主插件、Hook 和 Agent 的本地安装投影。
 
@@ -50,7 +50,7 @@ Echo Semantic 是运行在开发者本机的 Coding Agent 插件，不是公网�
 - Skill 没有自动触发；
 - 宿主版本不支持某个 Hook；
 - 语义校验通过但业务逻辑仍有缺陷；
-- 本地可信用户主动修改插件、Hook 或 Git 私有状态；
+- 本地可信用户主动修改插件、Hook 或 `.echo-semantic/` 运行态；
 - 未接入 CI 的项目可以由用户自行跳过本地流程。
 
 这些问题可能仍是功能缺陷或文档缺口，可以通过普通 Issue 报告。

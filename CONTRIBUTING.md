@@ -61,7 +61,7 @@ docs: expand public architecture guide
 4. 是否新增公共 API、协议、状态权威或迁移？
 5. 允许修改哪些路径，需要运行哪些验证？
 
-采用本插件自身开发时，先执行 `semantic-preflight` 并把记录留在 Git 私有目录。
+采用本插件自身开发时，先执行 `semantic-preflight` 并把记录写入 `.echo-semantic/preflight.json`。
 
 ## 架构边界
 
@@ -69,7 +69,7 @@ docs: expand public architecture guide
 - `agents/` 是只读角色唯一真理源；
 - `hooks/entry.mjs` 是三宿主生命周期共享入口；
 - `runtime/` 只保存宿主能力、风险路由和可丢弃继续包；
-- `semantic/` 是本插件自身的长期语义事实；
+- `.echo-semantic/` 是本插件自身的长期语义事实；
 - design/ADR 是产品和架构权威；
 - formatter、Lint、类型和测试继续拥有实现质量权威。
 

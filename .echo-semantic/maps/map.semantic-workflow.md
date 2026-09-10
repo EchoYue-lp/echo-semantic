@@ -4,7 +4,7 @@ id: map.semantic-workflow
 kind: capability_map
 title: 语义工作流与只读复核
 risk: high
-observed_at: source:677bbc9ea253c6fbb8c000981c28c7c3a94e5a8d4b0f7eb906169c77972c2d5f
+observed_at: source:5b21f4df7f4d3fc137da895bc2c4b805f9a57e690a3ab702e712dfed81327d13
 boundary_refs: [boundary.semantic-workflow]
 behavior_refs: [behavior.preflight-before-write]
 rule_refs: [rule.single-semantic-authority]
@@ -19,7 +19,8 @@ scenarios:
     behavior_refs: [behavior.preflight-before-write]
   architecture-change:
     status: mapped
-    source_refs: [skills/semantic-preflight/workflows/architecture-convergence.md#绑定权威]
+    source_refs:
+      [skills/semantic-preflight/workflows/architecture-convergence.md#绑定权威]
     rule_refs: [rule.single-semantic-authority]
   independent-review:
     status: mapped
@@ -39,7 +40,7 @@ scenarios:
 
 ## 入口与输出
 
-每个用户意图由一个独立 Skill 触发，输出回到同一套项目 `semantic/` 对象。
+每个用户意图由一个独立 Skill 触发，输出回到同一套项目 `.echo-semantic/` 对象。
 
 ## 行为关系
 
@@ -47,7 +48,7 @@ scenarios:
 
 ## 状态与数据流
 
-长期事实只写项目 `semantic/`；任务预检和风险路由只写 Git 私有状态。
+长期事实和任务运行态都写入项目 `.echo-semantic/`；只有 5 个运行态文件写入 `.git/info/exclude`，不进入 Git 提交。
 
 ## 策略来源与优先级
 

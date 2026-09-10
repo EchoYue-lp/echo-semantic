@@ -54,7 +54,7 @@ node runtime/route.mjs \
 ```
 
 输出包含 `route`、`skills`、`changedPaths`、`highRiskPaths`、`enforcement`、静态 `capabilities` 和本次 `runtimeProbe`。
-路由结果同时写入目标仓库 Git 私有目录的 `echo-semantic/route.json`。
+路由结果同时写入目标仓库 `.echo-semantic/route.json`，并更新 `status.md` 和 `status.json`。
 
 ## 语义状态
 
@@ -161,16 +161,12 @@ npm run verify
 ## 本地状态位置
 
 ```text
-<git-dir>/echo-semantic/preflight.json
-<git-dir>/echo-semantic/route.json
-<git-dir>/echo-semantic/continuation.json
+<project-root>/.echo-semantic/preflight.json
+<project-root>/.echo-semantic/route.json
+<project-root>/.echo-semantic/continuation.json
+<project-root>/.echo-semantic/status.md
+<project-root>/.echo-semantic/status.json
 ~/.echo-semantic/install-state.json
 ```
 
-使用以下命令查看目标仓库实际 Git 私有路径：
-
-```bash
-git -C /absolute/project/path rev-parse --git-path echo-semantic
-```
-
-不要提交这些短期状态文件，也不要把它们作为项目长期行为事实。
+`.echo-semantic/` 中的长期语义 Markdown 正常提交；上述 5 个运行态文件由插件写入 `.git/info/exclude`，不进入提交。

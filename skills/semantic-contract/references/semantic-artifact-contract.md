@@ -10,7 +10,7 @@
 ## 目录
 
 ```text
-semantic/
+.echo-semantic/
 ├── README.md
 ├── baseline.md
 ├── maps/
@@ -43,7 +43,7 @@ kind: <对象类型>
 
 ## 基线
 
-`semantic/baseline.md` 保存：
+`.echo-semantic/baseline.md` 保存：
 
 ```yaml
 schema_version: 1
@@ -64,15 +64,15 @@ coverage: []
 
 区域 `path` 使用仓库相对文件或目录前缀，状态只能是 `in_scope`、`supporting`、`generated_or_vendor` 或
 `excluded`。`excluded` 必须给出 `reason`、`risk`、`recheck_when`。当 `inventory_closure: closed` 时，每个非
-`semantic/` Git 文件必须且只能命中一个区域；每个 `in_scope` 区域必须有八个风险视角的覆盖格。
+`.echo-semantic/` 长期语义文件必须且只能命中一个区域；每个 `in_scope` 区域必须有八个风险视角的覆盖格。
 
-`source_snapshot.content_digest` 对 Git 已跟踪和未忽略未跟踪文件计算，排除 `semantic/`。严格验证要求摘要与当前
+`source_snapshot.content_digest` 对 Git 已跟踪和未忽略未跟踪文件计算，排除 `.echo-semantic/`。严格验证要求摘要与当前
 工作树一致；`base_revision` 必须存在且是当前 `HEAD` 的祖先。摘要提供精确当前性，revision 提供可恢复谱系，避免
 语义文件包含自身提交标识形成循环。
 
 ## Capability Map
 
-`semantic/maps/<id>.md` 包含 `title`、`risk`、`observed_at`、边界及对象引用，并通过 `scenarios` 保存场景处置。
+`.echo-semantic/maps/<id>.md` 包含 `title`、`risk`、`observed_at`、边界及对象引用，并通过 `scenarios` 保存场景处置。
 每个场景必须有 `source_refs`；`mapped` 至少引用 Behavior、Rule、Evidence 或 Finding；`needs_review` 必须有
 `unknown` 和 `next_step`；`excluded` 必须有理由、风险和复查条件。
 
@@ -106,7 +106,7 @@ Behavior 正文包含：`重要承诺`、`当前行为`、`期望行为`、`触�
 
 ## 生成前预检
 
-`semantic-preflight` 状态保存在 Git 私有目录，不进入 `semantic/`。它必须记录分类、风险、允许路径、复用依据、
+`semantic-preflight` 状态保存在 `.echo-semantic/preflight.json`，由 `.git/info/exclude` 排除，不进入 Git 提交。它必须记录分类、风险、允许路径、复用依据、
 验证要求、基准 revision、高风险信号，以及“复用已有边界”或“新增边界理由”二选一的结论。该状态只约束当前任务，
 不定义项目架构或产品行为。记录必须包含任务标识、写入时间、仓库绝对路径和当前 `HEAD`；SessionStart、无变化 Stop
 或成功 Stop 后失效，失败 Stop 保留用于同一任务修复重试。

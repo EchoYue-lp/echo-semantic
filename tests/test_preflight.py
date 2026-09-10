@@ -54,7 +54,7 @@ class PreflightTest(unittest.TestCase):
             ["python3", str(SCRIPT), *args], capture_output=True, text=True, check=False
         )
 
-    def test_records_low_risk_contract_in_git_private_state(self) -> None:
+    def test_records_low_risk_contract_in_project_state_directory(self) -> None:
         result = self.run_script(
             "record",
             "--root",
@@ -73,20 +73,11 @@ class PreflightTest(unittest.TestCase):
             "扩展现有解析边界",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        git_path = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(self.repository),
-                "rev-parse",
-                "--git-path",
-                "echo-semantic/preflight.json",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-        state = json.loads((self.repository / git_path).read_text(encoding="utf-8"))
+        state = json.loads(
+            (self.repository / ".echo-semantic/preflight.json").read_text(
+                encoding="utf-8"
+            )
+        )
         self.assertEqual(state["allowedPaths"], ["src"])
         self.assertEqual(state["risk"], "low")
         self.assertTrue(state["taskId"])
@@ -200,20 +191,11 @@ class PreflightTest(unittest.TestCase):
             "docs/adr/0001-test.md",
         )
         self.assertEqual(result.returncode, 0, result.stderr)
-        git_path = subprocess.run(
-            [
-                "git",
-                "-C",
-                str(self.repository),
-                "rev-parse",
-                "--git-path",
-                "echo-semantic/preflight.json",
-            ],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-        state = json.loads((self.repository / git_path).read_text(encoding="utf-8"))
+        state = json.loads(
+            (self.repository / ".echo-semantic/preflight.json").read_text(
+                encoding="utf-8"
+            )
+        )
         authority = state["designAuthorities"][0]
         self.assertEqual(authority["kind"], "adr")
         self.assertEqual(len(authority["contentDigest"]), 64)

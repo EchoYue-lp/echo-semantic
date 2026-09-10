@@ -120,7 +120,7 @@ uv run skills/semantic-preflight/scripts/preflight.py check --root /absolute/pro
 
 ## “内容摘要不一致”
 
-`semantic/baseline.md` 的 `source_snapshot.content_digest` 与当前非 `semantic/` 文件不一致。先运行 `semantic-diff` 确认受影响对象，
+`.echo-semantic/baseline.md` 的 `source_snapshot.content_digest` 与当前非 `.echo-semantic/` 文件不一致。先运行 `semantic-diff` 确认受影响对象，
 再更新 Baseline 和相关 `observed_at`。只替换摘要但不更新行为与证据，会把真实变化隐藏在新摘要后面。
 
 ## “未分类 Git 路径”
@@ -142,7 +142,7 @@ Baseline 的 `regions` 没有覆盖新文件。判断该路径是：
 
 ## “高风险变化没有同次更新语义对象”
 
-生产源码、未知源码、协议、迁移或治理控制面发生变化，但当前差异没有同步更新 `semantic/`。运行 `semantic-diff`，把高风险路径写入受影响对象的源码引用或证据正文。
+生产源码、未知源码、协议、迁移或治理控制面发生变化，但当前差异没有同步更新 `.echo-semantic/`。运行 `semantic-diff`，把高风险路径写入受影响对象的源码引用或证据正文。
 
 架构类变化还必须绑定并同次更新正式 design/ADR。
 
@@ -150,7 +150,7 @@ Baseline 的 `regions` 没有覆盖新文件。判断该路径是：
 
 失败 Stop 会保留预检供重试，这是设计行为。读取完整错误，修复对应层后再次停止：
 
-- 结构/引用/摘要错误：修复 `semantic/`；
+- 结构/引用/摘要错误：修复 `.echo-semantic/`；
 - 路径越界：重新预检或缩小差异；
 - 设计依据缺失：补充正式 design/ADR；
 - `uv` 不可用：安装或修复 `uv`；
@@ -167,7 +167,7 @@ Baseline 的 `regions` 没有覆盖新文件。判断该路径是：
 - 未超过 7 天；
 - Baseline、语义对象和 design/ADR 的证据摘要未变化。
 
-任一条件不满足都会静默忽略旧恢复提示，并根据当前事实重新计算路由。长期事实仍在 Git 管理的 `semantic/` 和 design/ADR 中。
+任一条件不满足都会静默忽略旧恢复提示，并根据当前事实重新计算路由。长期事实仍在 Git 管理的 `.echo-semantic/` 和 design/ADR 中。
 
 ## Cursor 安装后无变化
 

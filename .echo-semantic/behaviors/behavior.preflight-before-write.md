@@ -8,7 +8,7 @@ risk: high
 primary_focus: state_authority
 focus: [trigger_input, contract_evidence]
 boundary: boundary.semantic-workflow
-observed_at: source:677bbc9ea253c6fbb8c000981c28c7c3a94e5a8d4b0f7eb906169c77972c2d5f
+observed_at: source:5b21f4df7f4d3fc137da895bc2c4b805f9a57e690a3ab702e712dfed81327d13
 code_refs:
   - skills/semantic-preflight/SKILL.md#机器记录
   - skills/semantic-preflight/scripts/preflight.py#def record
@@ -25,7 +25,7 @@ finding_refs: []
 
 ## 当前行为
 
-Skill 完成语义判断，脚本将结构化结果写入 Git 私有目录并拒绝不完整的高风险声明。
+Skill 完成语义判断，脚本将结构化结果写入 `.echo-semantic/preflight.json` 并拒绝不完整的高风险声明。
 
 ## 期望行为
 
