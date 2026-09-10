@@ -1,6 +1,6 @@
 {
   "name": "echo-semantic",
-  "version": "0.1.0+codex.20260910045213",
+  "version": "0.1.0+codex.20260910045551",
   "private": true,
   "description": "Coding Agent 语义预检与持续质量门禁",
   "type": "module",
