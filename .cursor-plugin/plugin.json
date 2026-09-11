@@ -2,7 +2,7 @@
   "name": "echo-semantic",
   "displayName": "Echo Semantic",
   "description": "Coding Agent 语义预检与持续质量门禁",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": {
     "name": "Echo"
   },

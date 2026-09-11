@@ -5,6 +5,14 @@
 
 ## Unreleased
 
+### 待决定
+
+- 首次公开分发前选择并添加明确的开源许可证。
+
+## 0.3.0 - 2026-09-12
+
+本版本把老项目语义整合闭环推进为可在 merge、rebase、squash、cherry-pick 和重构后确定性执行的语义连续性门禁。
+
 ### 语义连续性门禁
 
 - `semantic-diff`、`semantic-verify` 和确定性校验器新增多前置 revision 语义义务比较，覆盖 merge、rebase、squash、cherry-pick 和重构；
@@ -13,9 +21,18 @@
 - Action 可选接收 merge-base、target、source、result 并输出确定性 JSON 报告；旧单基准门禁保持兼容；
 - 不新增自动 Git merge Skill，不修改 Codex、Cursor、Claude Code 的 Hook、Agent 和 manifest 适配。
 
-### 待决定
+### 文档、性能与兼容性
 
-- 首次公开分发前选择并添加明确的开源许可证。
+- README、概念、命令参考、CI、宿主支持、发布指南以及架构流程图和多分支时序图同步到 `0.3.0`；
+- Git tree 读取按 revision 缓存，并使用流式 `git cat-file --batch` 复用 blob 摘要；普通 blob 不把完整正文常驻内存；
+- 保持 `0.2.0` 的 `source:<digest>` 算法可恢复，Git mode 和 symlink 类型仅进入新增连续性引用签名；
+- Codex、Cursor、Claude Code 的 manifest 只同步版本字段，Agent、Hook 事件、能力矩阵和安装器行为保持不变。
+
+### 验证边界
+
+- Git DAG 回归覆盖 merge commit、PR merge ref、squash/rebase 形候选、单前置重构、错误 merge-base、实现覆盖、测试角色变化和批准证据防伪；
+- 静态合同和自动测试不能替代真实 GitHub Runner、Codex 新任务、Cursor 窗口重载或 Claude Code 登录会话验收；
+- 未建模的动态注册和隐含产品行为仍需要 Discovery、Audit 与人的裁决，不能由连续性门禁事后恢复。
 
 ## 0.2.0 - 2026-09-11
 

@@ -1,6 +1,6 @@
 # Echo Semantic 文档
 
-这里是 `echo-semantic 0.2.0` 的公共文档入口。第一次使用从“快速开始”进入；评估架构、接入 CI 或参与开发时按主题阅读。
+这里是 `echo-semantic 0.3.0` 的公共文档入口。第一次使用从“快速开始”进入；评估架构、接入 CI 或参与开发时按主题阅读。
 
 ## 使用文档
 
@@ -22,6 +22,8 @@
 | [项目架构与状态流转设计](supreme/specs/plugin-architecture/design.md)                | 完整架构、状态图、流程图、时序图、失败降级和验收标准     |
 | [多宿主适配](multi-host-adapters.md)                                                 | 三端发现、Hook、Agent 和安装投影差异                     |
 | [ADR 0001](adr/0001-multi-host-layered-enforcement.md)                               | 记录分层语义治理架构的选择理由                           |
+| [ADR 0002](adr/0002-semantic-consolidation.md)                                      | 记录老项目语义整合、受控清理和人工裁决边界               |
+| [ADR 0003](adr/0003-semantic-continuity-gate.md)                                    | 记录多前置版本语义义务保全与合并门禁的选择理由           |
 | [语义材料合同](../skills/semantic-contract/references/semantic-artifact-contract.md) | `.echo-semantic/` 对象、字段、引用、快照和高风险门禁规范 |
 | [贡献指南](../CONTRIBUTING.md)                                                       | 开发环境、边界、验证和 Pull Request 要求                 |
 | [安全说明](../SECURITY.md)                                                           | 本地威胁模型、敏感信息边界和漏洞报告方式                 |

@@ -1,6 +1,6 @@
 # 核心概念
 
-`echo-semantic 0.2.0` 将“需要模型判断的语义工作”与“可以机器确定的结构和 Git 事实”分开。理解这条边界，是正确使用插件的前提。
+`echo-semantic 0.3.0` 将“需要模型判断的语义工作”与“可以机器确定的结构和 Git 事实”分开。理解这条边界，是正确使用插件的前提。
 
 ## 四层约束
 
@@ -22,7 +22,8 @@ flowchart LR
   Repair --> Equivalence[行为等价验证]
   Evidence --> Verify[semantic-verify]
   Equivalence --> Verify
-  Verify --> CI[CI 最终门禁]
+  Verify --> Continuity[多前置语义连续性比较]
+  Continuity --> CI[CI 最终门禁]
 ```
 
 | 层     | 能解决什么                                   | 不能证明什么                 |

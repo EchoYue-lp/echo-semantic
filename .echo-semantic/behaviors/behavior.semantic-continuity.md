@@ -8,7 +8,7 @@ risk: high
 primary_focus: contract_evidence
 focus: [state_authority, time_lifecycle, failure_concurrency]
 boundary: boundary.semantic-continuity
-observed_at: source:502233233033ff11554f18edff940878414cd522bf58d94de3481b7721d84f11
+observed_at: source:dc28a20c48961826c028d86b3b6bcef6c0951ac085fec34fc2ee936bf8270380
 code_refs:
   - skills/semantic-contract/scripts/verify_semantic.py#extract_obligations
   - skills/semantic-contract/scripts/verify_semantic.py#compare_continuity

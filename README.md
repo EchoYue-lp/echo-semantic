@@ -6,8 +6,8 @@
 插件不替代 formatter、Lint、类型检查、单元测试、契约测试或集成测试。Skill 负责需要判断的工作，Hook 负责
 生命周期接线，校验器和 CI 负责确定性阻断。
 
-> 当前版本：`0.2.0`。本版本完成语义资产盘点、候选归并、受控删除和行为等价验证；Codex 本地安装与 Cursor 窗口检查已完成，
-> Claude Code 登录后的完整会话仍需要持续补充真实宿主证据。首个公共发布许可证尚待项目所有者决定。
+> 当前版本：`0.3.0`。本版本在语义资产盘点、候选归并、受控删除和行为等价验证之上新增多前置 revision 语义连续性门禁；仅沿用 `0.2.0` 的 Codex 安装与 Cursor 窗口证据，
+> `0.3.0` 的真实宿主重载、Claude Code 登录会话和 GitHub Runner 仍需发布时验收。首个公共发布许可证尚待项目所有者决定。
 
 ## 解决什么问题
 
@@ -131,7 +131,7 @@ flowchart TD
 | `semantic-preflight`   | 写代码前完成复用、边界、允许路径、设计权威和验证矩阵预检         |
 | `semantic-status`      | 汇总基线、路由、预检、开放 Finding、失效 Audit 和下一步 Frontier |
 | `semantic-discover`    | 建立基线并盘点文件、符号、入口、状态、协议、测试消费者和未知区   |
-| `semantic-diff`        | 将代码差异映射到能力、规则、失效审查和验证范围                   |
+| `semantic-diff`        | 将代码差异或多前置 revision 映射到语义义务、影响和验证范围       |
 | `semantic-audit`       | 对高风险边界执行有界、可反证的只读审查                           |
 | `semantic-consolidate` | 将资产候选归并为 canonical owner 决策，不自动合并或删除          |
 | `semantic-repair`      | 将已批准的替换、重构和删除绑定到预检、Hook、Stop 和 CI           |

@@ -8,7 +8,7 @@ risk: high
 primary_focus: state_authority
 focus: [trigger_input, contract_evidence]
 boundary: boundary.semantic-workflow
-observed_at: source:502233233033ff11554f18edff940878414cd522bf58d94de3481b7721d84f11
+observed_at: source:dc28a20c48961826c028d86b3b6bcef6c0951ac085fec34fc2ee936bf8270380
 code_refs:
   - skills/semantic-preflight/SKILL.md#机器记录
   - skills/semantic-preflight/scripts/preflight.py#def record

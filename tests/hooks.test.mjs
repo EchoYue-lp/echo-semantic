@@ -532,7 +532,7 @@ test("成功 Stop 后同一工作树重复调用幂等放行", () => {
     schemaVersion: 1,
     result: "passed",
     verifiedAt: new Date(Date.now() - 1_000).toISOString(),
-    pluginVersion: "0.2.0",
+    pluginVersion: "0.3.0",
     host: "claude-code",
     headRevision: previous.headRevision,
     worktreeFingerprint: previous.worktreeFingerprint,
