@@ -1,5 +1,5 @@
 name: Echo Semantic
-description: 校验语义基线、源码引用、路径分类、高风险变更依据、删除授权和行为等价证据
+description: 校验语义基线、高风险依据、删除授权、行为等价证据和多前置版本语义连续性
 inputs:
   root:
     description: 待校验仓库根目录
@@ -12,6 +12,26 @@ inputs:
     description: 是否强制高风险差异具有同次语义依据
     required: false
     default: "true"
+  continuity-merge-base:
+    description: 可选的语义连续性共同 Git 基准
+    required: false
+    default: ""
+  continuity-target:
+    description: 可选的语义连续性目标分支 revision
+    required: false
+    default: ""
+  continuity-source:
+    description: 可选的语义连续性来源分支 revision
+    required: false
+    default: ""
+  continuity-result:
+    description: 可选的语义连续性候选结果 revision
+    required: false
+    default: ""
+  continuity-report:
+    description: 可选的语义连续性 JSON 报告路径
+    required: false
+    default: ""
 runs:
   using: composite
   steps:
@@ -30,3 +50,37 @@ runs:
           args+=(--require-change-evidence)
         fi
         uv run "$GITHUB_ACTION_PATH/skills/semantic-contract/scripts/verify_semantic.py" "${args[@]}"
+
+        continuity_values=(
+          "${{ inputs.continuity-merge-base }}"
+          "${{ inputs.continuity-target }}"
+          "${{ inputs.continuity-source }}"
+          "${{ inputs.continuity-result }}"
+        )
+        continuity_count=0
+        for value in "${continuity_values[@]}"; do
+          if [[ -n "$value" ]]; then
+            continuity_count=$((continuity_count + 1))
+          fi
+        done
+        if [[ "$continuity_count" -ne 0 && "$continuity_count" -ne 4 ]]; then
+          echo "::error::语义连续性门禁必须同时提供 merge-base、target、source 和 result"
+          exit 2
+        fi
+        if [[ -n "${{ inputs.continuity-report }}" && "$continuity_count" -ne 4 ]]; then
+          echo "::error::continuity-report 只能与完整连续性输入一起使用"
+          exit 2
+        fi
+        if [[ "$continuity_count" -eq 4 ]]; then
+          continuity_args=(
+            --root "${{ inputs.root }}"
+            --continuity-merge-base "${{ inputs.continuity-merge-base }}"
+            --continuity-predecessor "${{ inputs.continuity-target }}"
+            --continuity-predecessor "${{ inputs.continuity-source }}"
+            --continuity-result "${{ inputs.continuity-result }}"
+          )
+          if [[ -n "${{ inputs.continuity-report }}" ]]; then
+            continuity_args+=(--continuity-report "${{ inputs.continuity-report }}")
+          fi
+          uv run "$GITHUB_ACTION_PATH/skills/semantic-contract/scripts/verify_semantic.py" "${continuity_args[@]}"
+        fi

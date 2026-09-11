@@ -5,6 +5,14 @@
 
 ## Unreleased
 
+### 语义连续性门禁
+
+- `semantic-diff`、`semantic-verify` 和确定性校验器新增多前置 revision 语义义务比较，覆盖 merge、rebase、squash、cherry-pick 和重构；
+- 候选结果必须保留 Behavior、Rule、Capability 场景、未决 Finding、未知项及其验证依赖，或提供可验证替代/退役 Evidence；
+- 引用内容签名同时保护 blob、执行位、symlink 类型、锚点和路径角色，阻断测试移出 runner、依赖缩减和旧实现覆盖；
+- Action 可选接收 merge-base、target、source、result 并输出确定性 JSON 报告；旧单基准门禁保持兼容；
+- 不新增自动 Git merge Skill，不修改 Codex、Cursor、Claude Code 的 Hook、Agent 和 manifest 适配。
+
 ### 待决定
 
 - 首次公开分发前选择并添加明确的开源许可证。

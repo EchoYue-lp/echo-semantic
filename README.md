@@ -57,9 +57,11 @@ flowchart LR
   Skills --> Semantic[项目 .echo-semantic/]
   Skills --> Design[项目 design / ADR]
   Control --> Runtime[.echo-semantic/ 运行态文件]
+  Control --> Continuity[多前置语义连续性比较]
   Semantic --> Verifier[确定性语义校验器]
   Design --> Verifier
   Runtime --> Verifier
+  Continuity --> Verifier
   Verifier --> CI[项目 CI]
   Tests[Formatter / Lint / 类型 / 测试] --> CI
 ```
@@ -102,7 +104,8 @@ flowchart TD
   Decision -- 否 --> Verify
   Repair --> Verify
   Candidate -- 否 --> Verify
-  Verify --> CI[CI 最终门禁]
+  Verify --> ContinuityGate[语义连续性门禁]
+  ContinuityGate --> CI[CI 最终门禁]
 ```
 
 没有 Baseline 的项目先进入 `semantic-discover`。证据无法确定真实产品预期或风险接受时才使用 `semantic-decide`；它不替代正式设计。
@@ -198,6 +201,10 @@ Codex 与 Claude Code 从插件约定路径 `hooks/hooks.json` 发现同一组�
 5. 上下文压缩前由 Hook 保存继续包，恢复时由 Hook 校验证据并重新注入 Frontier。
 6. 提交前调用 `semantic-verify`，并运行项目原有工程门禁。
 
+merge、rebase、squash、cherry-pick 或大范围重构还应启用语义连续性门禁。它比较共同基准、所有前置 revision 和候选结果中的
+Behavior、Rule、Capability 场景、未决 Finding、未知项及验证依赖，只允许保留、明确替代或批准退役；文本合并成功和结果分支
+剩余测试通过都不能覆盖父版本事实。
+
 生成前预检状态写入同一个 `.echo-semantic/`，由 `.git/info/exclude` 只排除运行态文件；长期语义材料继续提交版本控制。
 
 会话开始时插件运行 `runtime/route.mjs`，先区分安装探测与真实 Hook 事件证据，再按当前项目、任务范围和已验证宿主能力选择 `bootstrap`、`maintenance`、`fast`、`standard`、`strict` 或 `idle` 路由；Stop 尚无新鲜事件证据时保持 `bootstrap`；
@@ -241,7 +248,9 @@ uv run skills/semantic-status/scripts/status.py --root /absolute/project/path
 ```
 
 正式使用时应固定到发布标签或提交，不要长期跟踪 `main`。Action 会检查语义结构、当前源码摘要、源码引用、路径分类、
-生成前允许范围以及高风险差异的语义和设计依据。
+生成前允许范围以及高风险差异的语义和设计依据。需要阻止多分支语义丢失时，再提供
+`continuity-merge-base`、`continuity-target`、`continuity-source` 和 `continuity-result` 四个输入；相关 revision 必须在 CI
+检出历史中可恢复。
 
 ## 开发验证
 

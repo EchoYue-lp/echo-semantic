@@ -8,7 +8,7 @@ risk: medium
 primary_focus: time_lifecycle
 focus: [permission_external, data_durability]
 boundary: boundary.host-distribution
-observed_at: source:a4ecee189e667f957010fc16cdd97b3fbd01d12b5cdea339d40a96add5ffdc7b
+observed_at: source:502233233033ff11554f18edff940878414cd522bf58d94de3481b7721d84f11
 code_refs:
   - bin/install.mjs#function main
   - bin/install.mjs#function packedRelativePaths

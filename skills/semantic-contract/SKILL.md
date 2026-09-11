@@ -7,7 +7,7 @@ description: >-
 
 # 语义材料合同
 
-本 Skill 只处理可确定验证的结构和 Git 事实，不判断业务行为是否正确，不创建运行时存储或调度器；它会校验 Asset、归并候选、删除授权和等价 Evidence 的结构闭合。
+本 Skill 只处理可确定验证的结构和 Git 事实，不判断业务行为是否正确，不创建运行时存储或调度器；它会校验 Asset、归并候选、删除授权、等价 Evidence 和语义连续性 Evidence 的结构闭合。
 
 ## 工作流
 
@@ -30,6 +30,19 @@ uv run scripts/verify_semantic.py --root <仓库绝对路径> --strict-snapshot 
 ```bash
 uv run scripts/verify_semantic.py --self-test
 ```
+
+5. 对多前置版本执行连续性门禁：
+
+```bash
+uv run scripts/verify_semantic.py --root <仓库绝对路径> \
+  --continuity-merge-base <共同基准> \
+  --continuity-predecessor <目标分支> \
+  --continuity-predecessor <来源分支> \
+  --continuity-result <候选结果> \
+  --continuity-report <报告路径>
+```
+
+连续性模式直接读取 Git tree，输出稳定义务身份、规范化指纹和处置状态；不执行 Git merge，不把机器报告保存成第二套长期权威。
 
 ## 输出
 

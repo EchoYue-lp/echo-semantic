@@ -4,7 +4,7 @@ id: map.semantic-workflow
 kind: capability_map
 title: 语义工作流与只读复核
 risk: high
-observed_at: source:a4ecee189e667f957010fc16cdd97b3fbd01d12b5cdea339d40a96add5ffdc7b
+observed_at: source:502233233033ff11554f18edff940878414cd522bf58d94de3481b7721d84f11
 boundary_refs: [boundary.semantic-workflow]
 behavior_refs: [behavior.preflight-before-write]
 rule_refs: [rule.single-semantic-authority]
@@ -12,7 +12,7 @@ evidence_refs: [evidence.semantic-workflow]
 finding_refs: []
 audit_refs: []
 related_map_refs:
-  [map.lifecycle-enforcement, map.host-distribution, map.semantic-consolidation]
+  [map.lifecycle-enforcement, map.host-distribution, map.semantic-consolidation, map.semantic-continuity]
 scenarios:
   local-change:
     status: mapped
@@ -36,6 +36,12 @@ scenarios:
     source_refs:
       [runtime/route.mjs#computeRoute, hooks/entry.mjs#sessionContext]
     rule_refs: [rule.single-semantic-authority]
+  semantic-continuity:
+    status: mapped
+    source_refs:
+      [skills/semantic-contract/scripts/verify_semantic.py#compare_continuity]
+    behavior_refs: [behavior.semantic-continuity]
+    rule_refs: [rule.semantic-obligation-preservation]
 ---
 
 # 语义工作流

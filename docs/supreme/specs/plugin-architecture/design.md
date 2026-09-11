@@ -13,6 +13,7 @@ carrier: markdown
 当前发布版本为 `0.2.0`；本版本的架构图示覆盖仓库维护、资产盘点、候选归并、受控修复和行为等价验证闭环。
 
 - [ADR 0001](../../../adr/0001-multi-host-layered-enforcement.md) 记录为什么采用“Skill 判断、Hook 接线、校验器与 CI 阻断”的架构决策；
+- [ADR 0003](../../../adr/0003-semantic-continuity-gate.md) 记录为什么使用多前置版本的语义义务保全，而不是代码并集或自动 Git merge；
 - 本文描述该决策落地后的完整系统形态，不替代 ADR；
 - [多宿主适配](../../../multi-host-adapters.md) 保存 Codex、Cursor、Claude Code 的适配差异；
 - 采用方项目自己的 design/ADR 和 `.echo-semantic/` 仍是业务语义权威，插件文档不保存采用方事实。
@@ -30,7 +31,8 @@ carrier: markdown
 4. 在宿主支持时，于编辑前阻断超出预检范围的写入和未授权删除；
 5. 在上下文压缩前保存有证据约束的短期恢复线索；
 6. 在任务停止和 CI 合并时重新执行确定性语义验证；
-7. 让 formatter、Lint、类型、单元、契约和集成测试继续拥有实现质量权威。
+7. 在 merge、rebase、cherry-pick、重构和覆盖写入后，阻断未经解释的能力、规则、生命周期、未决问题和验证义务丢失；
+8. 让 formatter、Lint、类型、单元、契约和集成测试继续拥有实现质量权威。
 
 ## 目标行为
 
@@ -41,6 +43,9 @@ carrier: markdown
 - 没有明确任务且没有新工作树变化时进入 `maintenance`，建议执行全仓盘点、状态汇总、定向审查和验证；
 - 明确任务只允许其 `semantic-preflight` 路径和语义引用参与修复，不把全仓候选混入任务差异；
 - 任何短期状态失效都只能导致重新预检或降级，不能放宽编辑和停止门禁；
+- 候选结果必须保留所有前置版本仍有效的语义义务；语义减少只能通过明确替代或经人批准的退役闭合；
+- 两个前置版本对同一语义义务产生不同修改时，即使 Git 文本合并没有冲突，也必须形成语义冲突并要求显式处置；
+- 合并结果中的测试和 Evidence 不能只按“当前仍存在”判断，前置版本已有的验证义务也必须保留、替代或批准退役；
 - Hook 缺失、宿主不支持或未取得真实会话证据时，由 Stop 和 CI 收口，不宣称完整运行时覆盖。
 
 ## 范围与非目标
@@ -51,6 +56,7 @@ carrier: markdown
 - Capability、Behavior、Rule、Evidence、Finding、Audit、Discovery 的 Markdown 合同；
 - `semantic-preflight`、风险路由、任务继续包和状态汇总；
 - 语义资产盘点、候选归并、受控修复和行为等价 Evidence；
+- 多前置 revision 的语义连续性比较、冲突分类、保全报告和 CI 门禁；
 - 严格快照、源码引用、路径分类、高风险依据和 CI 变更门禁。
 
 ### 非目标
@@ -60,6 +66,7 @@ carrier: markdown
 - 不把预检、路由或继续包升级为业务状态权威；
 - 不复制采用方已有的 design/ADR、任务系统、测试系统或工程规范；
 - 不提供形式化行为等价证明、无监督 Git merge 或无监督批量删除；
+- 不把源码文本并集、AST 相似或“测试仍通过”单独视为语义保全证明；
 - 当前不提供 MCP Server；本地文件和 Git 足以完成现有确定性验证。
 
 ## 系统边界
@@ -86,6 +93,7 @@ flowchart TB
     Capability[宿主能力合同与探测]
     Router[风险路由]
     Continuation[任务继续包]
+    Continuity[语义连续性比较]
     Status[语义状态与 Frontier]
   end
 
@@ -116,6 +124,7 @@ flowchart TB
   Semantic --> Verifier
   Design --> Verifier
   GitPrivate --> Verifier
+  Continuity --> Verifier
   Engineering --> Action
   Verifier --> Action
 ```
@@ -152,6 +161,7 @@ echo-semantic/
 | Hook 入口  | `hooks/entry.mjs`                                                  | 统一解析三端事件，接入路由、编辑范围、压缩恢复和停止验证           | 语义判断和长期材料写入       |
 | 能力矩阵   | `runtime/capabilities/`                                            | 保存静态宿主能力合同并探测当前安装与版本                           | 真实会话已经成功的结论       |
 | 风险路由   | `runtime/route.mjs`                                                | 根据基线、宿主探测、任务范围和 Git 差异计算治理深度                | 持久任务阶段和人工决策       |
+| 连续性比较 | `semantic-diff` 与确定性校验器                                     | 比较 merge-base、前置版本和候选结果的语义义务与处置                | 自动 Git merge 和产品裁决    |
 | 继续包     | `runtime/continuation.mjs`                                         | 保存并校验短期任务恢复线索及证据摘要                               | 完整对话、审批状态和长期事实 |
 | 状态视图   | `skills/semantic-status/`                                          | 汇总结构、新鲜度、开放问题和唯一下一入口                           | 完整语义验证结论             |
 | 语义 Skill | `skills/`                                                          | 完成维护、发现、盘点、归并、预检、差异、修复、审查、裁决和验证协作 | 宿主生命周期强制执行         |
@@ -173,6 +183,7 @@ echo-semantic/
 | 原生宿主分发副本                      | `~/.echo-semantic/distribution/`          | Codex 或 Claude Code 已安装期间  | 可覆盖安装投影   | 最后一个原生渠道卸载后删除           |
 | 宿主注册与缓存                        | Codex、Cursor、Claude Code 用户目录       | 由宿主管理                       | 安装投影         | 重装覆盖，卸载撤回                   |
 | 工程验证结果                          | 项目工具与 CI                             | 每次变更重新产生                 | 实现质量权威     | 任何失败均不得以语义材料替代         |
+| 连续性报告                            | 命令输出或 CI Artifact                    | 单次比较，可由 revision 重算      | 派生验证结果     | 输入 revision 或语义材料变化即失效   |
 
 `.echo-semantic/` 是唯一项目目录；长期语义 Markdown 提交 Git，5 个运行态文件由 `.git/info/exclude` 排除。删除运行态文件最多要求重新预检、重新路由或丢失恢复提示。
 
@@ -212,11 +223,102 @@ flowchart TD
   Decision -- 是 --> Human[semantic-decide / 人工裁决]
   Human --> Verify
   Decision -- 否 --> Verify
-  Verify --> CI[CI 最终门禁]
+  Verify --> Continuity[语义连续性门禁]
+  Continuity --> CI[CI 最终门禁]
   CI --> Done[允许合并或交付]
 ```
 
 流程不是固定瀑布线。`semantic-status` 根据当前事实给出 Frontier；低风险任务可以跳过正式审查，风险只能在差异出现后升级，不能因早期判断而降级。
+
+## 语义连续性门禁
+
+语义连续性门禁面向所有可能重写历史或覆盖实现的操作，包括 Git merge、rebase、cherry-pick、squash、重构和整文件替换。
+它不合并源码，而是比较前置版本和候选结果中的有效语义义务。
+
+### 语义义务
+
+以下内容进入保全集合：
+
+- 所有 Behavior 与 Rule；
+- Capability Map 中状态为 `mapped` 或 `needs_review` 的场景，稳定身份为 `<map-id>#scenario:<scenario-id>`；
+- `open` 或 `risk_accepted` Finding，以及 Discovery 中尚未闭合的 `unresolved`；
+- 上述对象引用的源码、协议、状态权威、测试消费者和 Evidence。
+
+`verified`、`human_confirmed`、`needs_review` 和 `stale` 都不能因合并而静默消失。`needs_review` 和 `stale` 表示仍需处理，
+不是可以删除。`excluded` 场景不进入保全集合，但其排除理由仍由对象合同验证。
+
+每项义务使用稳定对象 ID 或场景 ID 标识，并生成规范化语义指纹。指纹包含影响行为的结构化字段、关系引用和规范化正文，排除
+`observed_at`、`discovered_at`、审查时间等仅表示快照的新鲜度字段。集合字段排序后参与指纹，避免 YAML 顺序产生伪冲突。
+
+### 多前置版本比较
+
+普通修改只有一个前置版本；merge 比较 `merge-base`、目标分支、来源分支和候选结果。门禁先计算每个前置版本相对
+`merge-base` 的语义增量，再验证结果是否包含全部仍有效义务，而不是直接对源码或对象文件取文本并集。
+
+```mermaid
+flowchart LR
+  Base[merge-base] --> Left[目标分支语义快照]
+  Base --> Right[来源分支语义快照]
+  Left --> Union[有效语义义务与分支增量]
+  Right --> Union
+  Result[候选结果] --> Compare[连续性比较]
+  Union --> Compare
+  Compare --> Preserved[保留]
+  Compare --> Replaced[明确替代]
+  Compare --> Retired[批准退役]
+  Compare --> Conflict[冲突或未知]
+  Preserved --> Pass[通过]
+  Replaced --> Evidence[等价与迁移 Evidence]
+  Retired --> Decision[人的退役裁决]
+  Evidence --> Pass
+  Decision --> Pass
+  Conflict --> Block[阻断]
+```
+
+比较规则：
+
+| 前置版本变化 | 候选结果要求 | 缺少处置时 |
+| ------------ | ------------ | ---------- |
+| 义务仅在一侧新增 | 保留相同稳定身份，或提供明确替代/退役 | 阻断 |
+| 一侧修改、另一侧未修改 | 保留修改后指纹，或提供明确处置 | 阻断 |
+| 两侧作出相同修改 | 结果必须匹配共同指纹 | 阻断 |
+| 两侧对同一义务作出不同修改 | 提供引用两侧 revision 与指纹的冲突解决 Evidence | 阻断 |
+| 一侧删除、另一侧仍保留或修改 | 提供人的退役裁决；若另一侧同时修改则按冲突处理 | 阻断 |
+| 前置版本存在未决 Finding 或未知项 | 结果继续保留，或提供有效解决证据 | 阻断 |
+
+### 允许的语义减少
+
+语义义务只能通过以下两条路径从候选结果中减少：
+
+1. **明确替代**：结果中的 canonical Behavior、Rule、场景或 Asset 声明替代关系，并提供覆盖原义务场景的行为等价或迁移 Evidence；
+2. **批准退役**：人的 Decision 明确引用被移除义务、所有受影响前置 revision、产品理由、兼容影响和回滚策略。
+
+仅删除源码、删除测试、更新 Baseline 摘要、关闭 Finding、修改对象 ID 或让结果分支现有测试通过，都不能构成有效处置。
+
+需要替代、退役或解决双侧冲突时，候选结果必须包含 `evidence_type: semantic_continuity` 的长期 Evidence。该 Evidence 至少记录：
+
+- `merge_base_revision`、全部 `predecessor_revisions` 和 `result_snapshot`；长期 Evidence 的结果快照使用排除
+  `.echo-semantic/` 后的 `source:<digest>`，避免把包含自身的 commit SHA 写回对象形成循环；
+- 以稳定义务身份为键的 `resolutions`；
+- 每项处置的 `disposition`、父版本规范化指纹和结果义务映射；
+- 替代或冲突解决时的 `replacement_ref` 与等价/迁移 `evidence_refs`；
+- 退役或冲突解决时的 `decision_authorities`，每项包含 design/ADR 路径、类型和内容摘要；
+- 兼容影响、回滚策略和仍未覆盖的限制。
+
+`replacement_ref` 必须指向候选结果中存在的另一项义务；其 Evidence 必须同时引用原义务与替代义务，并覆盖原场景和验证依赖。
+双侧指纹冲突只能使用 `resolved_conflict`，不能伪装成原义务对自身的普通替代。退役不能只使用自由文本
+`decision_refs`，校验器必须重新计算 design/ADR 摘要，并确认其正文包含正式章节、明确批准状态、全部前置 revision、义务身份、
+产品理由、兼容影响和回滚策略。缺少任一父版本指纹、决策权威或回滚信息时，
+处置无效。
+
+### 输出与权威
+
+连续性比较产生机器可读报告，至少包含输入 revision、每项义务的前置指纹、结果映射、处置状态、证据引用和阻断原因。
+报告记录实际 result revision，是可重算的 CI Artifact，不成为第二套长期权威。需要长期保留的替代、退役和冲突解决事实继续写入项目自己的
+Finding、Decision、Evidence、Behavior、Rule 和 design/ADR。
+
+结果状态只有 `preserved`、`replaced`、`retired`、`conflicted`、`missing` 和 `unknown`。只有前三种允许通过；高风险
+`conflicted`、`missing` 或 `unknown` 必须返回非零，不能降级成提示。
 
 ## 路由决策
 
@@ -431,6 +533,38 @@ sequenceDiagram
 
 `semantic-decide` 只在源码、契约和测试都无法确定产品期望或风险接受时进入，不负责替代正式架构设计。
 
+## 多分支语义保全时序
+
+```mermaid
+sequenceDiagram
+  actor Maintainer as 维护者
+  participant Git as Git revisions
+  participant Diff as semantic-diff continuity mode
+  participant Contract as .echo-semantic
+  participant Verify as semantic-verify
+  participant Tests as 项目工程工具
+  participant CI as CI 门禁
+
+  Maintainer->>CI: 提交 merge / rebase / squash 候选
+  CI->>Git: 解析 merge-base、目标、来源与候选结果
+  Git-->>Diff: 四个可恢复 revision 或 tree
+  Diff->>Contract: 读取各版本 Behavior、Rule、场景、Finding 与 Evidence
+  Diff->>Diff: 生成规范化指纹和两侧语义增量
+  Diff->>Verify: 提交义务保全矩阵
+  alt 全部保留、明确替代或批准退役
+    Verify->>Tests: 核对前置版本验证义务在结果中仍可执行
+    Tests-->>Verify: 工程命令与场景结果
+    Verify-->>CI: preserved / replaced / retired
+    CI-->>Maintainer: 允许合并
+  else 义务缺失、双侧冲突或动态未知
+    Verify-->>CI: missing / conflicted / unknown
+    CI-->>Maintainer: 阻断并列出对象、场景和前置 revision
+  end
+```
+
+PR 门禁必须在来源分支仍可访问时运行。普通 merge commit 可从两个父提交恢复输入；squash、rebase 或来源分支即将删除时，
+CI 必须在历史被压平前保存带 revision 和对象指纹的连续性报告。报告不能替代最终结果验证，最终候选树仍需再次校验。
+
 ## 安装与卸载时序
 
 ```mermaid
@@ -474,6 +608,8 @@ sequenceDiagram
 4. Skill 可以提出、归并和复核语义结论，但只有校验器能确定结构、引用、摘要、路径分类、删除授权和等价 Evidence 是否成立。
 5. Hook 的成功只证明本地事件入口返回成功；CI 必须在独立环境重新读取最终差异。
 6. 真实宿主能力需要版本、配置、信任和生命周期事件证据；静态 manifest 不能单独证明 Hook 已运行。
+7. 前置 revision 中已经通过校验的语义对象是连续性输入；当前结果不能通过改写自身 Baseline 来重新定义前置版本曾经存在的义务。
+8. LLM 负责提出对象映射、替代候选和冲突解释；确定性校验器只接受可恢复 revision、稳定身份、对象指纹和显式证据，不把模型结论直接当作通过条件。
 
 ## 异常与降级
 
@@ -492,6 +628,11 @@ sequenceDiagram
 | `.git/info/exclude` 无法安全更新                 | 拒绝创建运行态                            | 否                           |
 | 校验器或 `uv` 不可用                             | Stop 失败并保留预检                       | 否                           |
 | 语义摘要、源码引用或路径分类失效                 | `semantic-verify` 和 CI 失败              | 否                           |
+| 任一连续性输入 revision 不可恢复                 | 高风险比较返回 `unknown` 并阻断           | 否                           |
+| 前置义务在结果中消失且没有替代或退役证据         | 返回 `missing` 并列出义务身份             | 否                           |
+| 两个前置版本对同一义务产生不同指纹               | 返回 `conflicted`，要求显式冲突解决       | 否                           |
+| 结果保留实现但丢失对应测试或 Evidence            | 视为验证义务丢失并阻断                    | 否                           |
+| squash 或 rebase 后无法恢复来源分支              | 要求使用历史压平前的连续性报告重新验证    | 否                           |
 | 一个宿主安装失败                                 | 返回该宿主 `failed`，保留其它宿主结果     | 不影响其它渠道               |
 | Hook 未被宿主信任或未触发                        | 不声称运行时已覆盖                        | 否，由 CI 提供最终信号       |
 
@@ -513,6 +654,16 @@ Skill 适合语义判断，Hook 适合生命周期接线，脚本和 CI 适合�
 
 所有任务都保留生成前和生成后收口，但只有高风险差异才要求定向 Audit 和正式设计依据，避免把轻量修改变成固定重流程。没有明确任务时，`maintenance` 对 Baseline 覆盖代码做全仓语义维护；明确任务时只处理预检允许路径。
 
+### 保护语义义务而不是代码并集
+
+源码文本、AST 节点和测试文件都可能移动、重写或被新的 canonical owner 替代，直接取代码并集会保留冲突实现并制造重复状态权威。
+连续性门禁以稳定语义身份和显式处置为准：实现可以变化，未经解释的业务行为、规则、未决风险和验证义务不能消失。
+
+### 前置版本证据不可由结果覆盖
+
+结果分支自己的 Baseline 只能说明结果如何解释自身，不能证明它完整继承了其它分支。连续性比较直接从 Git revision 读取前置对象，
+并把父版本指纹写入报告；否则一次错误 merge 可以连同代码、测试和语义材料一起删除，随后用新的摘要掩盖丢失。
+
 ### 不引入常驻控制服务
 
 当前状态只需本地文件、Git 和短进程完成。数据库、daemon 和 MCP 会增加部署与状态一致性成本，但没有提供当前场景必需的新能力。
@@ -521,6 +672,9 @@ Skill 适合语义判断，Hook 适合生命周期接线，脚本和 CI 适合�
 
 - 复用宿主原生插件、marketplace、Skill、Agent 和 Hook 机制，不建设自有插件运行时；
 - 复用 Git 的 revision、branch、diff 和私有路径，不建设独立版本系统；
+- 复用 `semantic-diff` 作为语义映射入口，复用 `semantic-verify`、校验器和 Action 作为确定性门禁，不增加自动 Git merge Skill；
+- 复用 Capability Map 场景、Behavior、Rule、Finding、Decision、Evidence 和 Asset 的稳定身份，不建立平行的“合并对象库”；
+- 规范化指纹、集合比较和 revision 读取使用标准库与 Git；语言级删除线索优先复用已有 Asset 盘点，启发式只升级风险；
 - 复用采用方 formatter、Lint、类型、测试和 CI，不在语义 Skill 中模拟代码质量工具；
 - 复用正式 design/ADR，`semantic-decide` 不创建第二套架构仓库；
 - 三端适配器保持薄，只处理事件和路径映射；共享运行时不得复制三份实现；现有 Codex、Cursor 的 Agent/manifest 投影保持兼容，新增能力不得改写其既有字段和事件合同；
@@ -545,6 +699,12 @@ Skill 适合语义判断，Hook 适合生命周期接线，脚本和 CI 适合�
 6. 高风险变更仍需执行 `--require-change-evidence`，文档不能成为绕过机器门禁的依据；
 7. Asset、候选、删除和等价 Evidence 具有可校验关系，未知动态路径不会自动放行删除；
 8. Codex、Cursor、Claude Code 的真实生命周期验收与静态清单验证分开报告，现有宿主和 Agent 适配行为保持兼容。
+9. 给定两个前置版本分别新增不同 Behavior 或生命周期场景时，候选结果缺少任一义务都会以非零退出并报告稳定身份和来源 revision；
+10. 同一义务被两侧不同修改时，即使 Git 无文本冲突，连续性门禁仍返回 `conflicted`；
+11. 代码或对象移动在稳定身份和源码引用有效时不误报丢失；明确替代需有等价 Evidence，明确退役需有人的 Decision；
+12. 前置版本已有测试或 Evidence 与实现一起消失时门禁失败；只运行结果分支剩余测试不能通过；
+13. merge commit、PR merge ref、squash/rebase 前报告和单前置版本重构均有夹具覆盖；输入 revision 不可恢复时高风险路径失败关闭；
+14. 连续性报告是派生 Artifact，不写入新的项目状态目录；现有 Codex、Cursor、Claude Code manifest、Agent 和 Hook 事件合同保持不变。
 
 ## 已知限制
 
@@ -552,3 +712,6 @@ Skill 适合语义判断，Hook 适合生命周期接线，脚本和 CI 适合�
 - Cursor 窗口级检查已完成；完整 Hook 生命周期证据仍需按具体宿主版本、配置和信任状态记录；
 - Claude Code 仍需要登录后的完整模型会话验收；
 - Mermaid 图由文档渲染器呈现，纯文本环境仍以相邻表格和正文为准。
+- 没有被建模为 Behavior、Rule、Capability 场景、Finding 或 Evidence 依赖的隐含行为只能作为启发式候选，不能获得绝对保全保证；
+- 动态注册、反射、配置路由和运行环境差异无法闭合时返回 `unknown`，不自动推断等价；
+- 历史已被 squash/rebase 且前置 revision 与连续性报告均不存在时，插件不能事后恢复已经丢失的语义。

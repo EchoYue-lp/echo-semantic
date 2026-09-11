@@ -4,7 +4,7 @@ id: baseline.repository
 kind: baseline
 source_snapshot:
   base_revision: efd7c18252b749d0d1b399bfbf449bf081e69e8c
-  content_digest: a4ecee189e667f957010fc16cdd97b3fbd01d12b5cdea339d40a96add5ffdc7b
+  content_digest: 502233233033ff11554f18edff940878414cd522bf58d94de3481b7721d84f11
 inventory_closure: closed
 behavior_model_closure: open
 map_refs:
@@ -12,6 +12,7 @@ map_refs:
   - map.lifecycle-enforcement
   - map.host-distribution
   - map.semantic-consolidation
+  - map.semantic-continuity
 regions:
   - path: .agents
     status: supporting
@@ -71,6 +72,9 @@ boundaries:
     risk: medium
   - id: boundary.semantic-consolidation
     map_ref: map.semantic-consolidation
+    risk: high
+  - id: boundary.semantic-continuity
+    map_ref: map.semantic-continuity
     risk: high
 coverage:
   - {

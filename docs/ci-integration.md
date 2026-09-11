@@ -49,6 +49,40 @@ jobs:
 
 正式发布后应把 `@main` 固定为发布标签或完整提交 SHA，避免上游变化未经评估直接进入门禁。
 
+## 多分支语义连续性
+
+PR 合并前需要保留完整历史，并计算真实 merge-base：
+
+```yaml
+- uses: actions/checkout@v6
+  with:
+    fetch-depth: 0
+
+- name: 计算语义连续性基准
+  shell: bash
+  run: echo "CONTINUITY_BASE=$(git merge-base '${{ github.event.pull_request.base.sha }}' '${{ github.event.pull_request.head.sha }}')" >> "$GITHUB_ENV"
+
+- name: 执行 Echo Semantic 门禁
+  uses: EchoYue-lp/echo-semantic@main
+  with:
+    root: .
+    base: ${{ github.event.pull_request.base.sha }}
+    continuity-merge-base: ${{ env.CONTINUITY_BASE }}
+    continuity-target: ${{ github.event.pull_request.base.sha }}
+    continuity-source: ${{ github.event.pull_request.head.sha }}
+    continuity-result: ${{ github.sha }}
+    continuity-report: continuity-report.json
+```
+
+连续性输入将在包含本能力的正式版本发布后改为固定 tag；开发阶段示例使用 `@main`，生产采用方仍应固定到验收过的提交 SHA。
+
+默认 PR checkout 的候选结果必须真实包含目标与来源分支的合并结果；若工作流 checkout 的只是来源分支，应先生成可验证的 merge
+候选。squash 或 rebase 必须在来源分支仍可恢复时运行本门禁；历史压平且没有连续性报告后，无法事后恢复已经丢失的义务。
+
+连续性门禁不对源码取并集。它保护父版本中已经建模的 Behavior、Rule、Capability 场景、未决 Finding、未知项和验证依赖；
+替代、退役或双侧冲突解决需要 `semantic_continuity` Evidence。输入只提供一部分、revision 不可恢复或结果为
+`missing`/`conflicted`/`unknown` 时失败关闭。
+
 仓库从 `EchoYue-lp/echo-coding-semantic-governance` 重命名后，旧 GitHub Action 地址不会自动重定向。已有工作流必须把
 `uses:` 显式更新为 `EchoYue-lp/echo-semantic@<ref>`；普通网页和 Git 操作的重定向不能作为 Action 兼容保证。
 

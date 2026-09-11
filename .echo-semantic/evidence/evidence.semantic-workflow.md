@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.semantic-workflow
 kind: evidence
-observed_at: source:a4ecee189e667f957010fc16cdd97b3fbd01d12b5cdea339d40a96add5ffdc7b
+observed_at: source:502233233033ff11554f18edff940878414cd522bf58d94de3481b7721d84f11
 source_refs:
   - skills/semantic-contract/SKILL.md#语义材料合同
   - skills/semantic-contract/references/semantic-artifact-contract.md#语义材料合同
@@ -19,7 +19,9 @@ source_refs:
   - skills/semantic-status/scripts/status.py#status
   - README.md#架构总览
   - docs/supreme/specs/plugin-architecture/design.md#系统边界
-supports: [behavior.preflight-before-write, rule.single-semantic-authority]
+  - skills/semantic-contract/scripts/verify_semantic.py#compare_continuity
+supports:
+  [behavior.preflight-before-write, behavior.semantic-continuity, rule.single-semantic-authority, rule.semantic-obligation-preservation]
 limitations:
   - Skill 是否自动触发仍由各宿主模型和发现机制决定
 ---
@@ -29,7 +31,7 @@ limitations:
 ## 支持的结论
 
 十个入口职责分离，生成前预检、状态 Frontier、发现、资产盘点、差异、候选归并、受控修复、审查、裁决和验证围绕同一对象合同协作；预检、Hook、状态视图和 CI
-共享对象存在性与正式 design/ADR 摘要合同，压缩恢复只携带短期任务线索。
+共享对象存在性与正式 design/ADR 摘要合同，压缩恢复只携带短期任务线索；连续性模式直接比较 Git tree 中的父版本义务和候选结果。
 
 ## 来源与范围
 

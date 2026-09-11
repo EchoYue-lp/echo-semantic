@@ -23,4 +23,14 @@ description: >-
 - 高风险失效、残余风险、新 Finding 或事故关联进入 `semantic-audit`。
 - 其它变化直接进入 `semantic-verify`。
 
+## 语义连续性模式
+
+merge、rebase、squash、cherry-pick、重构或整文件覆盖可能丢失前置版本已有行为时，读取共同基准、一个或多个前置 revision
+和候选结果，形成语义义务矩阵。义务包括 Behavior、Rule、Capability Map 的 `mapped`/`needs_review` 场景、未决 Finding、
+Discovery 未知项及其 Evidence/Asset 依赖。
+
+比较必须区分 `preserved`、`replaced`、`retired`、`conflicted`、`missing` 和 `unknown`。模型可以提出映射或解释，但不能把
+源码文本合并成功、结果分支测试通过或结果 Baseline 已更新当作义务保全证据。替代、退役和双侧冲突解决必须引用结果中的
+`semantic_continuity` Evidence；其余结果交给 `semantic-verify` 确定性阻断。
+
 本 Skill 不创建第二套 diff、任务队列、状态机或架构目录。

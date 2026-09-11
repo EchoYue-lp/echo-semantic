@@ -8,7 +8,7 @@ risk: high
 primary_focus: failure_concurrency
 focus: [contract_evidence, time_lifecycle]
 boundary: boundary.lifecycle-enforcement
-observed_at: source:a4ecee189e667f957010fc16cdd97b3fbd01d12b5cdea339d40a96add5ffdc7b
+observed_at: source:502233233033ff11554f18edff940878414cd522bf58d94de3481b7721d84f11
 code_refs:
   - hooks/entry.mjs#function stop
   - hooks/entry.mjs#function deny

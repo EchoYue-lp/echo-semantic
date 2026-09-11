@@ -22,6 +22,9 @@ description: >-
 - 快照漂移、未分类路径、失效源码引用、失败命令和证据缺口都保持未完成；
 - `examined` 只表示列出的故障假设已检查，不表示没有缺陷。
 - 删除变化还必须有已完成 repair Finding、授权 `deletePaths` 和 `behavior_equivalence` Evidence；逐场景结果不是 `matched` 时保持未完成。
+- 连续性比较只允许 `preserved`、`replaced` 和 `retired`；`conflicted`、`missing`、`unknown` 或不可恢复 revision 必须失败关闭。
+- 结果分支不能通过同步删除代码、测试和语义材料来覆盖父版本事实；连续性门禁直接读取 Git tree 中的前置语义义务。
+- 替代必须绑定结果义务和等价 Evidence；退役与双侧冲突解决必须绑定可验证的 design/ADR 摘要、兼容影响和回滚信息。
 
 高风险差异还要运行 `semantic-contract` 提供的变更依据校验。Skill 提示词、代码阅读或单次审查都不能单独作为
 机器门禁通过证据。

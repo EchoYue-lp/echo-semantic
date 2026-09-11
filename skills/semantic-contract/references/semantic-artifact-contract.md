@@ -112,7 +112,68 @@ Finding 自身覆盖，替换引用必须指向 Asset。预检的 `repairRefs` �
 
 行为等价 Evidence 使用 `evidence_type: behavior_equivalence`，记录 `before_revision`、`after_revision`、逐场景
 `scenario_results`、非零即失败的 `command_results`、覆盖范围 `coverage` 和限制。删除场景还必须记录 `deleted_paths`，并将
-`before_revision` 绑定删除基准、`after_revision` 绑定当前源码摘要；每个场景必须为 `matched`。它只证明已检查场景，不表示形式化等价。
+`before_revision` 绑定包含原义务的前置 Git revision，`after_revision` 绑定候选结果源码摘要；每个场景必须为 `matched`。
+替代或冲突处置必须让 Evidence 覆盖原义务在全部不同前置版本中的指纹，不能用一份只验证单侧行为的 Evidence 代表全部父版本。
+它只证明已检查场景，不表示形式化等价。
+
+## 语义连续性 Evidence
+
+多前置版本保全以以下内容作为语义义务：Behavior、Rule、Capability Map 中 `mapped`/`needs_review` 场景、`open` 或
+`risk_accepted` Finding、Discovery `unresolved`，以及它们引用的 Evidence 和 Asset。场景身份为
+`<map-id>#scenario:<scenario-id>`；未知项身份为 `<discovery-id>#unresolved:<value>`。
+
+义务指纹包含影响语义的结构化字段、规范化正文及当前引用的内容签名，排除 `observed_at`、`discovered_at`、`revision`、
+`source_snapshot`、行号和纯路径定位字段。`*_refs` 等集合字段排序后计算；命令和其它有顺序含义的列表保持顺序。
+受保护 Behavior、Rule、Asset、Capability 场景和被引用 Evidence 的源码引用会以“目标 blob 内容 + Git mode + 锚点 + 路径角色”多重签名
+绑定到其义务指纹；被引用 Evidence 还会形成独立依赖义务。路径角色至少区分测试消费者、文档、协议、迁移、生产源码和治理控制面。
+角色按目录和常见测试文件命名共同判断，角色指纹保留重复次数。同内容在同角色内移动不会误报；跨角色移动、同角色引用数量减少、
+目标内容消失或改变时仍会阻断。对象把 `observed_at` 指回历史 revision
+只能证明旧观察可恢复，不能替代候选结果中当前依赖的存在性检查。
+Asset 的 `asset_type` 与实际路径角色共同进入指纹；旧的 `test_consumer` 等声明不能覆盖文件已经移出对应运行位置的事实。
+为兼容 `0.2.0` 历史材料，既有 `source:<digest>` 算法保持不变；Git mode 与 symlink 类型只进入新增的连续性引用签名。
+因此内容相同但 `100755` 被降为 `100644` 仍属于连续性变化，同时旧 revision 的 Baseline/`observed_at` 仍可恢复。
+
+替代、退役或双侧冲突解决使用 `evidence_type: semantic_continuity`：
+
+```yaml
+evidence_type: semantic_continuity
+merge_base_revision: <40 位 Git revision>
+predecessor_revisions: [<40 位 Git revision>]
+result_snapshot: source:<64 位 sha256>
+resolutions:
+  <义务身份>:
+    disposition: replaced | retired | resolved_conflict
+    predecessor_fingerprints:
+      <predecessor revision>: <64 位指纹或 absent>
+    replacement_ref: <结果义务身份>
+    evidence_refs: [<behavior_equivalence Evidence>]
+    decision_authorities:
+      - kind: design | adr
+        path: <仓库相对 Markdown 路径>
+        content_digest: <64 位 sha256>
+    compatibility_impact: <兼容影响>
+    rollback_ref: <明确回滚方式>
+```
+
+`predecessor_revisions` 必须唯一且完整；每项父版本指纹必须与 Git tree 重算结果一致。`replaced` 的结果义务只能是
+Behavior、Rule、Capability 场景或 Asset，不能使用 Evidence、Finding、Discovery unknown 或其它派生义务充当 canonical；
+同时必须有等价 Evidence。
+单前置重构要求 `merge_base_revision` 等于 predecessor；多前置比较必须与 `git merge-base --all --octopus` 得到的唯一真实
+共同基准一致。过老祖先、不可恢复 revision 或多个最佳共同基准都失败关闭。
+且 `replacement_ref` 不能等于被替代义务。`retired` 必须有 design/ADR 决策权威；双侧指纹冲突只能用
+`resolved_conflict`，同时要求结果映射、等价 Evidence 和人的决策权威。决策路径、类型、内容摘要、明确批准状态、全部前置
+revision、义务身份、产品理由、兼容影响和回滚策略必须可验证。
+正式 `状态` / `Status` 章节必须只包含一个规范值：`已批准`、`已采纳`、`已确认`、`approved` 或 `accepted`。
+否定、撤销、待确认、附带条件或包含额外说明的状态必须阻断，不能用背景、候选或决策正文中的批准字样替代批准状态。
+长期 Evidence 使用 `source:<digest>` 绑定排除 `.echo-semantic/` 后的结果源码，避免写入包含自身的 commit SHA 形成循环。
+执行连续性比较时，只有 `merge_base_revision`、排序后的 `predecessor_revisions` 和 `result_snapshot` 与本次四点输入完全一致的
+Evidence 才能作为当前 resolution；历史 Evidence 继续保留用于审计，但不能参与当前候选选择，也不要求其结果摘要等于仓库当前源码。
+
+连续性报告状态为 `preserved`、`replaced`、`retired`、`conflicted`、`missing` 或 `unknown`。只有前三种通过；其它状态和不可恢复
+revision 必须返回非零。报告是可重算的命令输出或 CI Artifact，不是长期语义权威。
+
+历史 tree 读取按 resolved revision 缓存结构，blob 通过 `git cat-file --batch` 流式处理并跨快照复用 `object_id -> sha256`；
+只有语义文档和实际源码引用保留正文，不能按文件启动 Git 子进程，也不能把整个仓库 blob 正文常驻内存。
 
 ## 八个风险视角
 

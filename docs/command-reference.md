@@ -57,6 +57,24 @@ node runtime/route.mjs \
 `hookEvidence`。没有明确任务且没有工作树变化时为 `maintenance`；明确任务通过有效预检后按任务范围路由。手工运行不会伪造 Hook 事件证据。
 路由结果同时写入目标仓库 `.echo-semantic/route.json`，并更新 `status.md` 和 `status.json`。
 
+## 语义连续性门禁
+
+比较共同基准、一个或多个前置版本与候选结果：
+
+```bash
+uv run skills/semantic-contract/scripts/verify_semantic.py \
+  --root /absolute/project/path \
+  --continuity-merge-base <merge-base> \
+  --continuity-predecessor <target-revision> \
+  --continuity-predecessor <source-revision> \
+  --continuity-result <result-revision> \
+  --continuity-report /absolute/path/continuity-report.json
+```
+
+所有连续性输入必须一起提供，`--continuity-predecessor` 可以重复。命令直接读取 Git tree，不 checkout 或修改分支；报告同时写入
+stdout 和可选路径。只有 `preserved`、`replaced`、`retired` 通过，`missing`、`conflicted`、`unknown` 或不可恢复 revision
+返回非零。普通单前置版本重构可以让 merge-base 与 predecessor 指向同一 revision。
+
 ## 语义状态
 
 ```bash

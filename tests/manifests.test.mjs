@@ -78,4 +78,15 @@ test("GitHub Action 将高风险基准声明为必填", () => {
   const action = readFileSync(resolve(root, "action.yml"), "utf8");
   assert.match(action, /base:\n\s+description:[^\n]+\n\s+required: true/);
   assert.match(action, /必须提供有效 base revision/);
+  for (const input of [
+    "continuity-merge-base",
+    "continuity-target",
+    "continuity-source",
+    "continuity-result",
+    "continuity-report",
+  ]) {
+    assert.match(action, new RegExp(`^  ${input}:`, "m"));
+  }
+  assert.match(action, /continuity_count.*-ne 0.*continuity_count.*-ne 4/s);
+  assert.match(action, /--continuity-predecessor/);
 });
