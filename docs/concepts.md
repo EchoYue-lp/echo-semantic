@@ -1,6 +1,6 @@
 # 核心概念
 
-`echo-semantic` 将“需要模型判断的语义工作”与“可以机器确定的结构和 Git 事实”分开。理解这条边界，是正确使用插件的前提。
+`echo-semantic 0.2.0` 将“需要模型判断的语义工作”与“可以机器确定的结构和 Git 事实”分开。理解这条边界，是正确使用插件的前提。
 
 ## 四层约束
 
@@ -9,6 +9,20 @@ flowchart LR
   Skill[Skill 语义判断] --> Hook[Hook 生命周期接线]
   Hook --> Verifier[确定性校验器]
   Verifier --> CI[CI 合并门禁]
+```
+
+老项目整合路径在这四层之内按以下顺序收敛：
+
+```mermaid
+flowchart LR
+  Inventory[Asset 盘点] --> Candidate[候选 Finding]
+  Candidate --> Decision{人工确认}
+  Decision -- 保留或暂缓 --> Evidence[补证据]
+  Decision -- 合并、迁移或退役 --> Repair[受控修复]
+  Repair --> Equivalence[行为等价验证]
+  Evidence --> Verify[semantic-verify]
+  Equivalence --> Verify
+  Verify --> CI[CI 最终门禁]
 ```
 
 | 层     | 能解决什么                                   | 不能证明什么                 |
@@ -70,7 +84,7 @@ Baseline 有两个独立闭合字段：
 | `strict`      | 高风险边界，需要同次证据和定向审查 | 生产源码、未知源码、协议、迁移、治理控制面 |
 
 路由是根据当前事实重新计算的短期结果，不是项目任务状态机。没有明确任务时使用 `maintenance`，建议执行全仓
-`semantic-discover`、`semantic-status`、`semantic-audit` 和 `semantic-verify`；存在任务预检时只处理允许路径。
+`semantic-discover`、`semantic-status`、`semantic-consolidate`、`semantic-audit` 和 `semantic-verify`；存在任务预检时只处理允许路径。
 差异出现后风险可以升级，不能因为生成前判断为低风险而强制降级。
 
 ## 三类短期状态

@@ -6,8 +6,8 @@
 插件不替代 formatter、Lint、类型检查、单元测试、契约测试或集成测试。Skill 负责需要判断的工作，Hook 负责
 生命周期接线，校验器和 CI 负责确定性阻断。
 
-> 当前状态：`0.1.x` 开发阶段。核心合同、自动测试和 Codex 本地安装已验证；Cursor 窗口重载、Claude Code 登录后的
-> 完整会话仍需要持续补充真实宿主证据。首个公共发布许可证尚待项目所有者决定。
+> 当前版本：`0.2.0`。本版本完成语义资产盘点、候选归并、受控删除和行为等价验证；Codex 本地安装与 Cursor 窗口检查已完成，
+> Claude Code 登录后的完整会话仍需要持续补充真实宿主证据。首个公共发布许可证尚待项目所有者决定。
 
 ## 解决什么问题
 
@@ -27,7 +27,7 @@ cd echo-semantic
 node bin/install.mjs install all
 ```
 
-安装后新建 Codex 或 Claude Code 会话；Cursor 需要重新加载窗口。然后在目标 Git 项目中要求 Agent：
+安装后新建 Codex 或 Claude Code 会话；Cursor 重新加载窗口。然后在目标 Git 项目中要求 Agent：
 
 ```text
 请使用 semantic-discover 建立当前仓库的语义基线；完成后运行严格快照验证。
@@ -95,7 +95,13 @@ flowchart TD
   Diff --> Risk{风险路由}
   Risk -- fast / standard --> Verify[semantic-verify]
   Risk -- strict --> Audit[semantic-audit]
-  Audit --> Verify
+  Audit --> Candidate{发现归并或退役候选?}
+  Candidate -- 是 --> Consolidate[semantic-consolidate]
+  Consolidate --> Decision{人工确认 canonical owner?}
+  Decision -- 是 --> Repair[semantic-repair + 行为等价验证]
+  Decision -- 否 --> Verify
+  Repair --> Verify
+  Candidate -- 否 --> Verify
   Verify --> CI[CI 最终门禁]
 ```
 

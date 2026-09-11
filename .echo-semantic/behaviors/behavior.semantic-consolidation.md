@@ -8,7 +8,7 @@ risk: high
 primary_focus: state_authority
 focus: [contract_evidence, failure_concurrency]
 boundary: boundary.semantic-consolidation
-observed_at: source:cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
+observed_at: source:a4ecee189e667f957010fc16cdd97b3fbd01d12b5cdea339d40a96add5ffdc7b
 code_refs:
   - runtime/route.mjs#computeRoute
   - skills/semantic-discover/scripts/inventory.py#scan
@@ -28,7 +28,7 @@ finding_refs: []
 
 ## 当前行为
 
-`maintenance` 路由提示全仓盘点、状态汇总、定向审查和验证；Asset 盘点和候选归并输出可追溯对象；repair 和 Delete 需要授权。
+`maintenance` 路由提示全仓盘点、状态汇总、候选归并、定向审查和验证；Asset 盘点和候选归并输出可追溯对象；repair 和 Delete 需要授权。
 
 ## 期望行为
 

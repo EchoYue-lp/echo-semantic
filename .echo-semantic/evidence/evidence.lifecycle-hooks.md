@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.lifecycle-hooks
 kind: evidence
-observed_at: source:cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
+observed_at: source:a4ecee189e667f957010fc16cdd97b3fbd01d12b5cdea339d40a96add5ffdc7b
 source_refs:
   - hooks/hooks.json#SessionStart
   - hooks/plugin-entry.mjs#function run
@@ -33,7 +33,7 @@ supports:
     rule.engineering-tools-own-style,
   ]
 limitations:
-  - Cursor 真实窗口尚未重载验收；stop 只能 followup，不能阻断会话结束
+  - Cursor 窗口已手工检查；完整事件证据仍需按宿主版本记录，stop 只能 followup，不能阻断会话结束
 ---
 
 # 生命周期门禁证据
@@ -50,4 +50,4 @@ PreCompact 会保存带证据摘要的恢复包，resume 只恢复仍可信的�
 
 ## 已知缺口
 
-Cursor 仅完成安装清单和本地插件路径验证。
+Cursor 已完成安装清单、本地插件路径和窗口级手工检查；完整生命周期事件仍需按版本记录。

@@ -12,7 +12,7 @@ function readJson(path) {
 test("三个宿主清单共享插件名称和版本", () => {
   const packageJson = readJson("package.json");
   assert.equal(packageJson.name, "echo-semantic");
-  assert.equal(packageJson.version, "0.1.0");
+  assert.equal(packageJson.version, "0.2.0");
   assert.doesNotMatch(packageJson.version, /\+codex\./);
   assert.ok(packageJson.files.includes(".echo-semantic/baseline.md"));
   for (const path of [

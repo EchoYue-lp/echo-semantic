@@ -1,6 +1,6 @@
 # 宿主支持
 
-`echo-semantic` 共享同一套 Skill、语义合同和运行时逻辑，Codex、Cursor、Claude Code 只在发现、事件名称、输出字段和安装投影上不同。
+`echo-semantic 0.2.0` 共享同一套 Skill、语义合同和运行时逻辑，Codex、Cursor、Claude Code 只在发现、事件名称、输出字段和安装投影上不同。
 
 ## 能力矩阵
 
@@ -87,7 +87,7 @@ node bin/install.mjs install cursor
 loadUserLocalPlugin echo-semantic rejected: symlink target ... is outside .../plugins/local
 ```
 
-安装后重新加载 Cursor 窗口。Cursor 使用 `sessionStart`、`preToolUse`、`preCompact` 和 `stop` 事件；字段名与 Claude Code 不同，
+安装后重新加载 Cursor 窗口；本版本已完成窗口级手工检查。Cursor 使用 `sessionStart`、`preToolUse`、`preCompact` 和 `stop` 事件；字段名与 Claude Code 不同，
 但都进入 `hooks/entry.mjs` 的共享逻辑。`preToolUse` 失败返回 `permission: "deny"`；`stop` 不能阻断会话结束，失败时用
 `followup_message` 拉回校验，最终阻断仍由 `preToolUse` 和 CI 负责。
 

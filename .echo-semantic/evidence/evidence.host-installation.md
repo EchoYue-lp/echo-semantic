@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.host-installation
 kind: evidence
-observed_at: source:cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
+observed_at: source:a4ecee189e667f957010fc16cdd97b3fbd01d12b5cdea339d40a96add5ffdc7b
 source_refs:
   - bin/install.mjs#installCodex
   - bin/install.mjs#installClaude
@@ -20,7 +20,7 @@ source_refs:
 supports: [behavior.multi-host-installation]
 limitations:
   - Windows 宿主尚未执行真实安装
-  - Cursor 需要重载窗口后在新会话验证运行时 Hook
+  - Cursor 窗口已由维护者手工检查；完整运行时 Hook 证据仍需按宿主版本记录
   - 当前 Cursor 拒绝指向 `plugins/local` 之外的符号链接，安装必须使用普通目录镜像
 ---
 
@@ -37,4 +37,4 @@ limitations:
 
 ## 已知缺口
 
-没有发布 marketplace 或版本标签，Windows 和 Cursor GUI 仍需后续验收。
+没有发布 marketplace 或版本标签，Windows 和 Claude Code 登录会话仍需后续验收；Cursor 窗口已完成手工检查。

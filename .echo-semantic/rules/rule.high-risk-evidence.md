@@ -7,7 +7,7 @@ expectation: inferred
 risk: high
 primary_focus: contract_evidence
 focus: [state_authority, failure_concurrency]
-observed_at: source:cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
+observed_at: source:a4ecee189e667f957010fc16cdd97b3fbd01d12b5cdea339d40a96add5ffdc7b
 behavior_refs:
   [behavior.preflight-before-write, behavior.post-change-verification]
 code_refs:

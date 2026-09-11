@@ -4,7 +4,7 @@ id: discovery.initial-baseline
 kind: discovery
 source_snapshot:
   base_revision: efd7c18252b749d0d1b399bfbf449bf081e69e8c
-  content_digest: cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
+  content_digest: a4ecee189e667f957010fc16cdd97b3fbd01d12b5cdea339d40a96add5ffdc7b
 scope: 插件工作流、生命周期门禁和三宿主分发
 inspected_paths:
   [

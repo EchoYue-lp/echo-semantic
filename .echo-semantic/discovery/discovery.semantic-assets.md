@@ -4,7 +4,7 @@ id: discovery.semantic-assets
 kind: discovery
 source_snapshot:
   base_revision: 4126cf7af446343ff578b8458f4664823f6d9e59
-  content_digest: cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
+  content_digest: a4ecee189e667f957010fc16cdd97b3fbd01d12b5cdea339d40a96add5ffdc7b
 scope: Git 可见路径、公开符号、入口、状态权威、协议字段、测试消费者和文档引用
 inspected_paths:
   - .agents/plugins/marketplace.json

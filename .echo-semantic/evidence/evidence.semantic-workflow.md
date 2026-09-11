@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.semantic-workflow
 kind: evidence
-observed_at: source:cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
+observed_at: source:a4ecee189e667f957010fc16cdd97b3fbd01d12b5cdea339d40a96add5ffdc7b
 source_refs:
   - skills/semantic-contract/SKILL.md#语义材料合同
   - skills/semantic-contract/references/semantic-artifact-contract.md#语义材料合同

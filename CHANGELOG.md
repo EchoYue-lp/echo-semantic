@@ -5,15 +5,40 @@
 
 ## Unreleased
 
-### Cursor 宿主发现与合同
-
-- Cursor 安装改为按 npm 发布白名单复制到 `~/.cursor/plugins/local/echo-semantic` 普通目录；当前 Cursor 会拒绝指向该目录之外的符号链接，因此不再把仓库 symlink 报告为已安装；
-- Cursor `preToolUse` 按官方合同输出 `permission` / `user_message` / `agent_message`，并匹配 `Write|StrReplace|Delete|Edit`；
-- Cursor `stop` 失败改为 `followup_message` 拉回校验，不再声称可以阻断会话结束；确定性阻断仍由编辑前检查和 CI 负责。
-
 ### 待决定
 
 - 首次公开分发前选择并添加明确的开源许可证。
+
+## 0.2.0 - 2026-09-11
+
+本版本把插件从“语义治理门禁”推进到“老项目语义整合闭环”，并完成 Codex、Cursor 的安装回归与文档同步。
+
+### 老项目语义整合
+
+- 新增 `semantic-discover` 资产盘点：生成稳定 Asset 身份，识别文件、符号、入口、状态权威、协议、测试消费者、文档和动态未知；
+- 新增 `semantic-consolidate`：将重复实现、平行状态权威和包装链形成候选 Finding，要求按候选簇选择 canonical owner；
+- 新增 `semantic-repair`：把替换关系、调用方切换、删除范围、回滚点和行为等价证据绑定到受控修复切片；
+- 行为等价 Evidence 绑定删除前后 revision、删除路径、逐场景结果和工程命令；动态未知、未闭合 Discovery 或 `needs_review` Asset 阻断删除；
+- Delete 编辑前 Hook、Stop 和 CI 共同执行高风险受控删除门禁，不接受静态无引用或单个旧 Evidence 作为删除依据。
+
+### 路由与任务范围
+
+- 无明确任务且工作树无变化时进入 `maintenance`，依次提供全仓资产盘点、状态汇总、候选归并、定向审查和验证；
+- 明确任务只处理 `semantic-preflight` 允许路径；预检记录 `scope: task`，任务 id 与宿主输入匹配后才进入任务范围路由；
+- 目录路径盘点支持递归范围，批准归并要求 `--candidate-id` 与候选簇内的 canonical Asset。
+
+### 多宿主与发布文档
+
+- 版本源、三端 manifest、Claude marketplace、Action、安装缓存检查和测试期望统一升级为 `0.2.0`；
+- README、概念、命令参考、CI、宿主支持、发布指南和安全说明同步版本与新能力；
+- 架构主流程、维护路由、宿主生命周期、高风险归并和安装卸载 Mermaid 图同步到当前执行链路；
+- Codex Agent 投影和 Cursor 专用事件协议保持不变，Cursor 仍使用本地普通目录镜像。
+
+### 验证边界
+
+- `npm run verify` 通过，包含格式/Lint、插件与分发合同、47 个 Node 测试、24 个 Python 测试、语义自测和严格快照；
+- Codex 安装脚本返回 `installed`，Cursor 安装脚本返回 `installed`；Cursor 窗口由维护者手工检查；
+- Claude Code 登录后的完整生命周期和公开许可证仍是后续发布工作，不把静态或安装证据描述为完整运行时覆盖。
 
 ## 0.1.0 - 2026-09-10
 

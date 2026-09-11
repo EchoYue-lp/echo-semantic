@@ -10,6 +10,8 @@ carrier: markdown
 
 本文描述 `echo-semantic` 的完整目标架构和当前实现约束，是项目架构、状态流转、生命周期与失败降级的统一说明。
 
+当前发布版本为 `0.2.0`；本版本的架构图示覆盖仓库维护、资产盘点、候选归并、受控修复和行为等价验证闭环。
+
 - [ADR 0001](../../../adr/0001-multi-host-layered-enforcement.md) 记录为什么采用“Skill 判断、Hook 接线、校验器与 CI 阻断”的架构决策；
 - 本文描述该决策落地后的完整系统形态，不替代 ADR；
 - [多宿主适配](../../../multi-host-adapters.md) 保存 Codex、Cursor、Claude Code 的适配差异；
@@ -187,7 +189,8 @@ flowchart TD
   Scope -- 是 --> Classify[分类 bugfix / feature / refactor / contract / style]
   Maintenance --> DiscoverAll[semantic-discover 盘点已完成代码]
   DiscoverAll --> StatusAll[semantic-status 汇总资产与缺口]
-  StatusAll --> AuditAll[semantic-audit 定向审查]
+  StatusAll --> ConsolidateAll[semantic-consolidate 形成候选]
+  ConsolidateAll --> AuditAll[semantic-audit 定向审查]
   AuditAll --> VerifyAll[semantic-verify]
   Classify --> Baseline{存在有效 semantic 基线?}
   Baseline -- 否 --> Discover[semantic-discover]
@@ -239,7 +242,7 @@ flowchart TD
 | 路由          | 进入条件                                            | 推荐入口                                                 | 必要收口                                           |
 | ------------- | --------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------- |
 | `bootstrap`   | 无基线、宿主/关键能力不可用，或 Stop 无新鲜事件证据 | `semantic-discover` 或 `semantic-preflight`              | `semantic-verify`                                  |
-| `maintenance` | 没有明确任务且工作树没有新变化                      | `semantic-discover`、`semantic-status`、`semantic-audit` | `semantic-verify`                                  |
+| `maintenance` | 没有明确任务且工作树没有新变化                      | `semantic-discover`、`semantic-status`、`semantic-consolidate`、`semantic-audit` | `semantic-verify`                                  |
 | `idle`        | 有基线且工作树无变化                                | `semantic-preflight`                                     | 新任务开始前重新记录预检                           |
 | `fast`        | 只有文档、配置、测试、示例等低风险路径              | `semantic-preflight`                                     | 工程验证和 `semantic-verify`                       |
 | `standard`    | 有变化但未命中高风险路径，且不全是快速路径          | `semantic-preflight`、`semantic-diff`                    | `semantic-verify`                                  |
@@ -335,14 +338,22 @@ sequenceDiagram
   Probe-->>Hook: runtimeProbe + capabilities
   Hook->>Git: 读取 baseline、工作树与短期状态
   Hook->>Runtime: 计算 bootstrap / idle / fast / standard / strict
-  Runtime-->>Hook: 路由、建议入口、执行能力
+  Runtime-->>Hook: maintenance / bootstrap / fast / standard / strict 路由与建议入口
   Hook->>Runtime: 按 taskId 读取可信继续包
   Hook-->>Host: 注入最小上下文与 Frontier
 
+  alt maintenance：没有明确任务且工作树无变化
+    Host->>Host: 执行全仓 discover、status、consolidate、audit、verify
+  else task：预检与宿主 taskId 匹配
+    Host->>Host: 只处理 semantic-preflight 允许路径
+  end
+
   opt Cursor 或 Claude Code 支持编辑前 Hook
-    Host->>Hook: PreToolUse(Edit / Write)
+    Host->>Hook: PreToolUse(Edit / Write / Delete)
     Hook->>Git: 校验当前预检、HEAD 与 allowedPaths
-    alt 预检有效且路径允许
+    alt Delete 且 repair、canonical、等价 Evidence 全部有效
+      Hook-->>Host: 允许已批准删除
+    else 预检有效且路径允许
       Hook-->>Host: 允许工具执行
     else 缺失、失效或越界
       Hook-->>Host: 阻断并返回原因
@@ -406,9 +417,14 @@ sequenceDiagram
   Diff-->>Audit: 高风险边界和故障假设
   Audit-->>Agent: Finding、残余风险或已检查范围
   Agent->>Consolidate: 归并 Asset 候选并选择 canonical owner
-  Consolidate-->>Agent: 延后、迁移、合并或退役决策
-  Agent->>Repair: 绑定 repair、删除范围、回滚点和等价 Evidence
-  Repair-->>Code: 允许已批准的小切片
+  Consolidate-->>Agent: 候选簇、动态未知和延后决策
+  alt 人工批准合并、迁移或退役
+    Agent->>Repair: 绑定 repair、删除范围、回滚点和等价 Evidence
+    Repair->>Code: 先切换调用方，再执行已批准小切片
+    Code-->>Agent: 行为场景、工程命令和回滚证据
+  else 暂缓或证据不足
+    Consolidate-->>Agent: 保留 Finding，进入 semantic-decide 或补证据
+  end
   Agent->>Verify: 快照、源码引用、路径分类和变更依据
   Verify-->>User: 允许交付或返回可定位阻断原因
 ```
@@ -426,7 +442,7 @@ sequenceDiagram
   participant Projection as Hook / Agent / 本地镜像
   participant State as ~/.echo-semantic
 
-  User->>Installer: install <channel | all>
+  User->>Installer: node bin/install.mjs install <channel | all>
   Installer->>Detect: 检查对应宿主是否存在
   alt all 且宿主未安装
     Detect-->>Installer: skipped
@@ -533,6 +549,6 @@ Skill 适合语义判断，Hook 适合生命周期接线，脚本和 CI 适合�
 ## 已知限制
 
 - Codex 当前缺少稳定的编辑前 Hook 覆盖；
-- Cursor 仍需要窗口重载后的真实插件与 Hook 验收；
+- Cursor 窗口级检查已完成；完整 Hook 生命周期证据仍需按具体宿主版本、配置和信任状态记录；
 - Claude Code 仍需要登录后的完整模型会话验收；
 - Mermaid 图由文档渲染器呈现，纯文本环境仍以相邻表格和正文为准。

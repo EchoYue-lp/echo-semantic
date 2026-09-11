@@ -4,7 +4,7 @@ id: map.host-distribution
 kind: capability_map
 title: Codex、Cursor 与 Claude Code 分发
 risk: medium
-observed_at: source:cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
+observed_at: source:a4ecee189e667f957010fc16cdd97b3fbd01d12b5cdea339d40a96add5ffdc7b
 boundary_refs: [boundary.host-distribution]
 behavior_refs: [behavior.multi-host-installation]
 rule_refs: [rule.single-semantic-authority]

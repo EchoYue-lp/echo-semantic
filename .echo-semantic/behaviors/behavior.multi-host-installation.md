@@ -8,7 +8,7 @@ risk: medium
 primary_focus: time_lifecycle
 focus: [permission_external, data_durability]
 boundary: boundary.host-distribution
-observed_at: source:cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
+observed_at: source:a4ecee189e667f957010fc16cdd97b3fbd01d12b5cdea339d40a96add5ffdc7b
 code_refs:
   - bin/install.mjs#function main
   - bin/install.mjs#function packedRelativePaths
@@ -50,7 +50,7 @@ GitHub 仓库重命名会重定向普通 Git 操作，但旧 GitHub Action `uses
 
 ## 证据
 
-本机 Codex、Claude Code 安装可见；Cursor 复制为 `~/.cursor/plugins/local` 下普通目录，符号链接会被当前 Cursor 拒绝。窗口重载后的真实 Hook 事件仍待新会话验收。
+本机 Codex、Claude Code 安装可见；Cursor 复制为 `~/.cursor/plugins/local` 下普通目录，符号链接会被当前 Cursor 拒绝；维护者已手工检查 Cursor 窗口。
 
 ## 裁决记录
 

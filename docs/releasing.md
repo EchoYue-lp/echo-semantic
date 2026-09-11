@@ -2,9 +2,11 @@
 
 本文面向维护者，定义公共发布前需要满足的证据。它不替代 GitHub 仓库保护规则和宿主 marketplace 的正式发布流程。
 
+当前发布目标为 `0.2.0`。本版本同时交付语义整合能力和对应文档/图示，版本号、三端 manifest、marketplace、Action 与测试必须作为一个变更集验收。
+
 ## 版本策略
 
-- 当前项目版本为 `0.1.0`，正式提交和 tag 使用不带开发后缀的语义化版本；
+- 当前项目版本为 `0.2.0`，正式提交和 tag 使用不带开发后缀的语义化版本；
 - `+codex.<timestamp>` 只允许作为本地未提交的 Codex 开发 cachebuster；提交、PR 和发布前必须恢复为目标正式版本；
 - `.codex-plugin/plugin.json`、`.cursor-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json` 和 `package.json` 必须保持版本一致；
 - 每个正式版本必须在 `CHANGELOG.md` 记录 Codex 稳定性、用户可感知变化、合同或迁移影响、验证边界和已知限制；
@@ -43,6 +45,13 @@ uv run skills/semantic-contract/scripts/verify_semantic.py \
 8. 分别记录 Codex 新任务、Cursor 窗口重载、Claude Code 登录会话的真实生命周期证据；
 9. 等待 GitHub CI 全部通过；
 10. 核对远端 tag 指向的提交与本地验收提交一致。
+
+## 0.2.0 对账
+
+- 版本源：`package.json`、三个宿主 manifest 和 `.claude-plugin/marketplace.json` 均为 `0.2.0`；
+- 用户文档：README、核心概念、宿主支持、命令参考、CI、FAQ、安全说明和本文不得继续把当前版本写成 `0.1.x`；
+- 图示：架构主流程、维护/任务路由、宿主生命周期、高风险归并和安装卸载时序必须包含当前 `maintenance`、Asset、Finding、repair 与等价验证路径；
+- 宿主验收：Codex 安装返回 `installed`，Cursor 安装返回 `installed` 且窗口级检查完成；真实事件证据仍按宿主版本、配置和信任状态单独记录。
 
 ## 发布证据分层
 
