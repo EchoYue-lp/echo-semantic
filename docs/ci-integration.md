@@ -66,6 +66,9 @@ Action 会调用确定性校验器，检查：
 8. 高风险路径是否有同次语义依据；
 9. 架构类变化是否绑定并更新正式 design/ADR。
 
+删除路径还必须有已完成的 repair Finding、`deletePaths` 授权和绑定删除前后版本的 `behavior_equivalence` Evidence；Shell 删除也会在 CI 的差异门禁中被识别。
+Discovery 未闭合的动态未知或 `needs_review` Asset 会阻断删除，避免把静态无引用误判为运行时不可达。
+
 ## 初次采用
 
 第一次引入完整 `.echo-semantic/` 时仍应提供 Pull Request 的基准 SHA。若项目正在分阶段建立基线，可以暂时设置：

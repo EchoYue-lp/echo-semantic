@@ -53,8 +53,8 @@ node runtime/route.mjs \
   --event manual
 ```
 
-输出包含 `route`、`skills`、`changedPaths`、`highRiskPaths`、`enforcement`、静态 `capabilities`、安装探测 `runtimeProbe` 和真实事件
-`hookEvidence`。手工运行路由不会伪造 Hook 事件证据；Stop 尚无新鲜证据时保持 `bootstrap`。
+输出包含 `route`、`scope`、`skills`、`changedPaths`、`highRiskPaths`、`enforcement`、静态 `capabilities`、安装探测 `runtimeProbe` 和真实事件
+`hookEvidence`。没有明确任务且没有工作树变化时为 `maintenance`；明确任务通过有效预检后按任务范围路由。手工运行不会伪造 Hook 事件证据。
 路由结果同时写入目标仓库 `.echo-semantic/route.json`，并更新 `status.md` 和 `status.json`。
 
 ## 语义状态
@@ -65,6 +65,59 @@ uv run skills/semantic-status/scripts/status.py \
 ```
 
 输出基线结构、路由可信度、预检新鲜度、继续包可信度、对象计数、开放 Finding、失效 Audit 和下一入口。该命令不替代完整验证。
+
+## 语义资产盘点
+
+盘点整个仓库：
+
+```bash
+uv run skills/semantic-discover/scripts/inventory.py --root /absolute/project/path
+```
+
+只盘点明确任务路径：
+
+```bash
+uv run skills/semantic-discover/scripts/inventory.py \
+  --root /absolute/project/path --path src/example.py
+```
+
+增加 `--write` 才写入 `.echo-semantic/assets/` 和 Discovery；静态重复只形成候选，不自动合并或删除。
+
+## 候选归并
+
+将候选写成等待人工决策的 Finding：
+
+```bash
+uv run skills/semantic-consolidate/scripts/consolidate.py \
+  --root /absolute/project/path --boundary <已有 boundary id> --write
+```
+
+候选默认是 `defer`，确认 canonical owner 后才能进入 `semantic-repair`。批准归并时使用 `--candidate-id` 和属于该候选簇的
+`--canonical-asset`，避免把一个实现误套到其它候选。
+
+## 受控修复与删除
+
+在已批准 Finding 上记录删除授权：
+
+```bash
+uv run skills/semantic-preflight/scripts/preflight.py record \
+  --root /absolute/project/path \
+  --kind refactor --risk high \
+  --allow src \
+  --reuse finding.consolidation.example \
+  --verify "project test" \
+  --repair-ref finding.consolidation.example \
+  --delete-path src/legacy.py \
+  --basis "已确认 canonical owner 和回滚点" \
+  --semantic-ref finding.consolidation.example \
+  --reuse-existing-boundary "复用现有能力边界"
+```
+
+删除工具会被编辑前 Hook 检查；Stop/CI 还会要求 repair Finding 和 `behavior_equivalence` Evidence。
+repair Finding 需要在对象中声明 `delete_paths`、`replacement_refs` 和 `rollback_ref`；等价 Evidence 需要绑定删除前后版本和
+`deleted_paths`，并逐场景保持 `matched`。
+
+预检脚本会写入 `scope: task` 和自动任务 id；若宿主提供稳定的任务/会话 id，可用 `--task-id` 传入同一值，便于后续会话继续识别任务范围。
 
 ## 生成前预检
 

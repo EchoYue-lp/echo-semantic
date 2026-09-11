@@ -21,10 +21,10 @@ Codex、Cursor 和 Claude Code 都支持 Skill；三者也提供不同形态的�
 
 ## 决策
 
-1. `skills/` 保存八个流程入口，`agents/` 保存三个只读角色；三个宿主清单只映射同一真理源。
+1. `skills/` 保存十个流程入口，`agents/` 保存三个只读角色；三个宿主清单只映射同一真理源；新增入口不改变既有 Agent 投影。
 2. 项目自己的 `.echo-semantic/` 保存唯一长期语义事实，插件不保存业务 Capability、Rule 或状态权威。
 3. `semantic-preflight` 将任务标识、允许路径、边界结论、设计摘要和风险声明写入 `.echo-semantic/preflight.json`；PreCompact 以同一任务状态生成带证据摘要的继续包，resume 只恢复仍匹配仓库、分支和证据的包；会话开始、无变化 Stop 或成功 Stop 会消费旧记录，失败 Stop 保留给同一任务重试。
-4. Codex 与 Claude Code 共用插件原生 `hooks/hooks.json`，使 Hook 在宿主界面保留插件来源；Cursor 使用专用事件映射。Hook 在会话开始注入最小路由提示和可信 Frontier，Claude Code 与 Cursor 在编辑工具执行前检查允许路径，PreCompact 保存恢复线索，停止前运行确定性校验；Codex 的编辑前工具名覆盖不足时由 Stop、PreCompact 和 CI 收口。未采用 `.echo-semantic/` 的项目不被阻断。
+4. Codex 与 Claude Code 共用插件原生 `hooks/hooks.json`，使 Hook 在宿主界面保留插件来源；Cursor 使用专用事件映射。Hook 在会话开始注入最小路由提示和可信 Frontier，Claude Code 与 Cursor 在编辑工具执行前检查允许路径和批准删除，PreCompact 保存恢复线索，停止前运行确定性校验；Codex 的编辑前工具名覆盖不足时由 Stop、PreCompact 和 CI 收口。未采用 `.echo-semantic/` 的项目不被阻断。
 5. `runtime/route.mjs` 同时读取静态能力合同和 `probeHost` 运行时结果；探测失败或停止 Hook 未验证时强制进入 `bootstrap`，路由状态区分声明能力与运行时探测，不把静态清单当真实会话证据。
 6. GitHub Action 提供与宿主无关的最终门禁；项目原有 formatter、Lint、类型、测试和契约工具继续拥有代码质量权威。
 7. 新公共 API、新状态权威、新协议、跨服务迁移和未映射生产路径必须具有同次语义依据；架构变化还必须绑定并更新正式设计或 ADR。

@@ -244,6 +244,7 @@ def record(args: argparse.Namespace) -> int:
         "baseRevision": run_git(root, "rev-parse", "HEAD"),
         "recordedAt": datetime.now(timezone.utc).isoformat(),
         "taskId": args.task_id or str(uuid.uuid4()),
+        "scope": "task",
         "kind": args.kind,
         "risk": args.risk,
         "allowedPaths": allowed,
@@ -251,6 +252,8 @@ def record(args: argparse.Namespace) -> int:
         "verifications": args.verify,
         "basis": args.basis,
         "semanticRefs": args.semantic_ref,
+        "repairRefs": args.repair_ref,
+        "deletePaths": args.delete_path,
         "signals": signals,
         "boundaryDecision": boundary_decision,
         "designAuthorities": authorities,
@@ -337,6 +340,8 @@ def parser() -> argparse.ArgumentParser:
     record_parser.add_argument("--verify", action="append", default=[], required=True)
     record_parser.add_argument("--basis", action="append", default=[])
     record_parser.add_argument("--semantic-ref", action="append", default=[])
+    record_parser.add_argument("--repair-ref", action="append", default=[])
+    record_parser.add_argument("--delete-path", action="append", default=[])
     record_parser.add_argument("--design-authority", action="append", default=[])
     record_parser.add_argument("--adr", action="append", default=[])
     boundary_group = record_parser.add_mutually_exclusive_group(required=True)

@@ -50,9 +50,10 @@ Windows 使用 `py -3 scripts/preflight.py ...`，参数合同不变。
 - `--basis <依据>` 和 `--semantic-ref <语义对象>`；
 - `--design-authority <现有或新设计路径>`、`--adr <ADR 路径>`。
 - 新增边界时用 `--new-boundary-reason <理由>` 替换 `--reuse-existing-boundary`。
+- 受控删除增加 `--repair-ref <Finding>` 和 `--delete-path <仓库相对路径>`；删除路径必须属于已批准的 repair Finding。
 
-记录写入目标仓库 `.echo-semantic/preflight.json`，并自动加入 `.git/info/exclude`，不进入版本控制。脚本自动生成任务标识；SessionStart、无变化 Stop 或成功 Stop 会消费
-该记录，失败 Stop 保留以便修复后重试。记录只供当前任务的 Hook 和校验器检查允许路径、新鲜度与高风险依据。
+记录写入目标仓库 `.echo-semantic/preflight.json`，并自动加入 `.git/info/exclude`，不进入版本控制。脚本自动生成任务标识并写入 `scope: task`；若宿主事件提供
+任务 id，应使用 `--task-id` 写入同一标识。SessionStart、无变化 Stop 或成功 Stop 会消费该记录，失败 Stop 保留以便修复后重试。记录只供当前任务的 Hook 和校验器检查允许路径、新鲜度与高风险依据。
 
 ## 衔接
 
@@ -60,3 +61,5 @@ Windows 使用 `py -3 scripts/preflight.py ...`，参数合同不变。
 2. 首个代码差异形成后调用 `semantic-diff`，风险深度只能升级。
 3. 高风险失效、残余风险或事故关联进入 `semantic-audit`。
 4. 完成工程工具验证后调用 `semantic-verify`。
+
+删除或替换旧实现时调用 `semantic-repair`，先记录替换关系、回滚点和行为等价证据，再执行 Delete 工具。

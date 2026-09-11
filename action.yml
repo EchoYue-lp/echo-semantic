@@ -1,5 +1,5 @@
 name: Echo Semantic
-description: 校验语义基线、源码引用、路径分类和高风险变更依据
+description: 校验语义基线、源码引用、路径分类、高风险变更依据、删除授权和行为等价证据
 inputs:
   root:
     description: 待校验仓库根目录

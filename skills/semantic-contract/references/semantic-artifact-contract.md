@@ -19,7 +19,8 @@
 ├── evidence/
 ├── findings/
 ├── audits/
-└── discovery/
+├── discovery/
+└── assets/
 ```
 
 除 `README.md` 与 `baseline.md` 外，每个 Markdown 文件只保存一个对象，文件名必须等于对象 `id`。
@@ -99,6 +100,20 @@ Behavior 正文包含：`重要承诺`、`当前行为`、`期望行为`、`触�
 - Audit 绑定边界、风险视角和 revision；每个故障假设必须有源码和 Evidence 引用。`examined` 不表示没有缺陷。
 - Discovery 只保存指定快照的扫描范围、检查路径、候选对象和未决项，不反向定义长期语义。
 
+Asset 使用 `assets/<id>.md`，描述一个可追踪的文件、符号、入口、状态权威、协议、测试消费者或文档资产。它必须包含
+`title`、`asset_type`、`status`、`risk`、`observed_at`、`boundary_refs`、`code_refs`、`consumer_refs`、
+`behavior_refs`、`rule_refs`、`evidence_refs` 和 `finding_refs`；候选资产可以用 `candidate_refs` 连接同一候选簇。
+
+`Finding.type: consolidation_candidate` 表示重复实现、平行状态权威或包装链候选。它必须包含至少两个
+`candidate_asset_refs`、`decision` 和（`merge`、`migrate`、`retire` 时）`canonical_asset_ref`。`defer` 或 `open` 不得作为删除授权。
+
+用于受控删除的已解决 Finding 还必须声明 `delete_paths`、非空 `replacement_refs` 和 `rollback_ref`；每个删除路径必须由
+Finding 自身覆盖，替换引用必须指向 Asset。预检的 `repairRefs` 只能引用这类 Finding。
+
+行为等价 Evidence 使用 `evidence_type: behavior_equivalence`，记录 `before_revision`、`after_revision`、逐场景
+`scenario_results`、非零即失败的 `command_results`、覆盖范围 `coverage` 和限制。删除场景还必须记录 `deleted_paths`，并将
+`before_revision` 绑定删除基准、`after_revision` 绑定当前源码摘要；每个场景必须为 `matched`。它只证明已检查场景，不表示形式化等价。
+
 ## 八个风险视角
 
 `trigger_input`、`result_side_effect`、`state_authority`、`data_durability`、`time_lifecycle`、
@@ -106,10 +121,14 @@ Behavior 正文包含：`重要承诺`、`当前行为`、`期望行为`、`触�
 
 ## 生成前预检
 
-`semantic-preflight` 状态保存在 `.echo-semantic/preflight.json`，由 `.git/info/exclude` 排除，不进入 Git 提交。它必须记录分类、风险、允许路径、复用依据、
-验证要求、基准 revision、高风险信号，以及“复用已有边界”或“新增边界理由”二选一的结论。该状态只约束当前任务，
+`semantic-preflight` 状态保存在 `.echo-semantic/preflight.json`，由 `.git/info/exclude` 排除，不进入 Git 提交。它必须记录 `scope: task`、分类、风险、允许路径、复用依据、
+验证要求、基准 revision、高风险信号，以及“复用已有边界”或“新增边界理由”二选一的结论。受控删除额外记录 `repairRefs` 和 `deletePaths`，
+把删除范围绑定到已完成 Finding。该状态只约束当前任务，
 不定义项目架构或产品行为。记录必须包含任务标识、写入时间、仓库绝对路径和当前 `HEAD`；SessionStart、无变化 Stop
 或成功 Stop 后失效，失败 Stop 保留用于同一任务修复重试。
+
+资产盘点遇到动态注册、反射、配置路由、插件入口或无法静态解析的调用时必须写入 Discovery 的 `unresolved` 或 Asset 的
+`needs_review`。只要这些未知项尚未闭合，删除差异一律阻断。
 
 ## 高风险变更门禁
 

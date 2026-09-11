@@ -4,14 +4,15 @@ id: map.semantic-workflow
 kind: capability_map
 title: 语义工作流与只读复核
 risk: high
-observed_at: source:0601ac04b1ed498782b4462cee66859c92500770eb0a401cf53e3072fdac7214
+observed_at: source:cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
 boundary_refs: [boundary.semantic-workflow]
 behavior_refs: [behavior.preflight-before-write]
 rule_refs: [rule.single-semantic-authority]
 evidence_refs: [evidence.semantic-workflow]
 finding_refs: []
 audit_refs: []
-related_map_refs: [map.lifecycle-enforcement, map.host-distribution]
+related_map_refs:
+  [map.lifecycle-enforcement, map.host-distribution, map.semantic-consolidation]
 scenarios:
   local-change:
     status: mapped
@@ -29,6 +30,11 @@ scenarios:
   route-selection:
     status: mapped
     source_refs: [runtime/route.mjs#computeRoute]
+    rule_refs: [rule.single-semantic-authority]
+  repository-maintenance:
+    status: mapped
+    source_refs:
+      [runtime/route.mjs#computeRoute, hooks/entry.mjs#sessionContext]
     rule_refs: [rule.single-semantic-authority]
 ---
 

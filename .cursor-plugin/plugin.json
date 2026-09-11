@@ -13,6 +13,8 @@
     "./skills/semantic-discover/",
     "./skills/semantic-diff/",
     "./skills/semantic-audit/",
+    "./skills/semantic-consolidate/",
+    "./skills/semantic-repair/",
     "./skills/semantic-decide/",
     "./skills/semantic-verify/",
     "./skills/semantic-contract/"

@@ -4,13 +4,14 @@ id: baseline.repository
 kind: baseline
 source_snapshot:
   base_revision: efd7c18252b749d0d1b399bfbf449bf081e69e8c
-  content_digest: 0601ac04b1ed498782b4462cee66859c92500770eb0a401cf53e3072fdac7214
+  content_digest: cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
 inventory_closure: closed
 behavior_model_closure: open
 map_refs:
   - map.semantic-workflow
   - map.lifecycle-enforcement
   - map.host-distribution
+  - map.semantic-consolidation
 regions:
   - path: .agents
     status: supporting
@@ -68,6 +69,9 @@ boundaries:
   - id: boundary.host-distribution
     map_ref: map.host-distribution
     risk: medium
+  - id: boundary.semantic-consolidation
+    map_ref: map.semantic-consolidation
+    risk: high
 coverage:
   - {
       region: skills,

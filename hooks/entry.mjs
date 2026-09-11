@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { computeRoute } from "../runtime/route.mjs";
+import { computeRoute, readRoute } from "../runtime/route.mjs";
 import {
   checkpointFromPreflight,
   clearContinuation,
@@ -22,10 +22,14 @@ import {
 } from "../runtime/continuation.mjs";
 import {
   projectStatePath,
+  writeProjectJson,
   writeVisibleStatus,
 } from "../runtime/project-state.mjs";
 
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const pluginVersion = JSON.parse(
+  readFileSync(resolve(pluginRoot, "package.json"), "utf8"),
+).version;
 const verifier = resolve(
   pluginRoot,
   "skills/semantic-contract/scripts/verify_semantic.py",
@@ -53,6 +57,7 @@ const architecturalSignals = new Set([
   "crossServiceMigration",
   "architectureChange",
 ]);
+const hookEvidenceLifetimeMs = 24 * 60 * 60 * 1000;
 
 function readInput() {
   try {
@@ -124,6 +129,7 @@ function validAllowedPath(value) {
 
 export function validPreflightShape(state) {
   if (state.pluginId !== pluginId) return false;
+  if (state.scope !== "task") return false;
   if (
     typeof state.taskId !== "string" ||
     !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(state.taskId)
@@ -137,6 +143,14 @@ export function validPreflightShape(state) {
   if (!nonEmptyStringList(state.verifications, true)) return false;
   if (!nonEmptyStringList(state.basis)) return false;
   if (!nonEmptyStringList(state.semanticRefs)) return false;
+  if (state.repairRefs !== undefined && !nonEmptyStringList(state.repairRefs))
+    return false;
+  if (
+    state.deletePaths !== undefined &&
+    (!Array.isArray(state.deletePaths) ||
+      state.deletePaths.some((path) => !validAllowedPath(path)))
+  )
+    return false;
   if (!Array.isArray(state.designAuthorities)) return false;
   if (
     state.designAuthorities.some(
@@ -196,6 +210,7 @@ function semanticObjectIds(root) {
     "findings",
     "audits",
     "discovery",
+    "assets",
   ]) {
     const path = resolve(root, ".echo-semantic", directory);
     if (!existsSync(path)) continue;
@@ -210,6 +225,80 @@ function semanticObjectIds(root) {
     }
   }
   return objects;
+}
+
+function semanticObjectMetadata(root, identifier) {
+  for (const directory of [
+    "maps",
+    "behaviors",
+    "rules",
+    "evidence",
+    "findings",
+    "audits",
+    "discovery",
+    "assets",
+  ]) {
+    const path = resolve(root, ".echo-semantic", directory);
+    if (!existsSync(path)) continue;
+    for (const entry of readdirSync(path, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+      const text = readFileSync(resolve(path, entry.name), "utf8");
+      const frontmatter = text.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
+      if (!frontmatter) continue;
+      const id = frontmatter[1].match(/^id:\s*['"]?([^'"\s]+)['"]?\s*$/m)?.[1];
+      if (id !== identifier) continue;
+      const metadataText = frontmatter[1];
+      const listField = (field) => {
+        const lines = metadataText.split("\n");
+        const index = lines.findIndex((line) =>
+          new RegExp(`^${field}:\\s*`).test(line),
+        );
+        if (index < 0) return [];
+        const inline = lines[index].match(/^\S+:\s*\[(.*)\]\s*$/)?.[1];
+        if (inline !== undefined) {
+          return inline
+            .split(",")
+            .map((item) => item.trim().replace(/^['"]|['"]$/g, ""))
+            .filter(Boolean);
+        }
+        const values = [];
+        for (const line of lines.slice(index + 1)) {
+          const match = line.match(/^\s+-\s+(.+?)\s*$/);
+          if (!match) break;
+          values.push(match[1].replace(/^['"]|['"]$/g, ""));
+        }
+        return values;
+      };
+      const scalarField = (field) =>
+        metadataText
+          .match(new RegExp(`^${field}:\\s*['"]?([^'"\\n]+)`, "m"))?.[1]
+          ?.trim() ?? "";
+      const scenarioStatuses = [
+        ...metadataText.matchAll(
+          /^\s+status:\s*(matched|failed|unknown)\s*$/gm,
+        ),
+      ].map((match) => match[1]);
+      return {
+        kind: metadataText.match(/^kind:\s*(\S+)\s*$/m)?.[1],
+        status: metadataText.match(/^status:\s*(\S+)\s*$/m)?.[1],
+        type: scalarField("type"),
+        decision: scalarField("decision"),
+        canonicalAssetRef: scalarField("canonical_asset_ref"),
+        codeRefs: listField("code_refs"),
+        candidateAssetRefs: listField("candidate_asset_refs"),
+        deletePaths: listField("delete_paths"),
+        replacementRefs: listField("replacement_refs"),
+        rollbackRef: scalarField("rollback_ref"),
+        verificationEvidenceRefs: listField("verification_evidence_refs"),
+        evidenceType: scalarField("evidence_type"),
+        beforeRevision: scalarField("before_revision"),
+        afterRevision: scalarField("after_revision"),
+        evidenceDeletedPaths: listField("deleted_paths"),
+        scenarioStatuses,
+      };
+    }
+  }
+  return null;
 }
 
 function currentAuthority(root, authority) {
@@ -338,6 +427,12 @@ function emit(value = {}) {
 }
 
 function sessionContext(host, route, continuation) {
+  const scopeContext =
+    route?.route === "maintenance"
+      ? "\n\n当前没有明确任务，请对 Baseline 覆盖的已完成代码依次执行 semantic-discover、semantic-status、semantic-consolidate、semantic-audit 和 semantic-verify；不要自动进入 semantic-repair。"
+      : route?.scope === "task"
+        ? "\n\n当前存在明确任务，只处理该任务 semantic-preflight 允许路径和语义引用。"
+        : "";
   const text =
     "已启用 Echo Semantic。修改代码前调用 semantic-preflight；" +
     "已有 .echo-semantic/ 基线时在首个差异后调用 semantic-diff，完成前调用 semantic-verify。" +
@@ -345,6 +440,7 @@ function sessionContext(host, route, continuation) {
     (route
       ? ` 当前路由：${route.route}；建议入口：${route.skills.join("、")}。`
       : "") +
+    scopeContext +
     (continuation ? `\n\n${formatContinuation(continuation)}` : "");
   if (host === "cursor") return { additional_context: text };
   return {
@@ -374,6 +470,11 @@ function isCursorEditTool(input) {
   const name = input.tool_name || input.toolName;
   if (typeof name !== "string" || !name.trim()) return true;
   return /^(Write|StrReplace|Delete|Edit|TabWrite)$/i.test(name.trim());
+}
+
+function isDeleteTool(input) {
+  const name = input.tool_name || input.toolName;
+  return typeof name === "string" && /^Delete$/i.test(name.trim());
 }
 
 function allow(host) {
@@ -443,6 +544,40 @@ function hasChanges(root) {
   return status === null || status.length > 0;
 }
 
+function isRepeatedVerifiedWorktree(previous, current, now = Date.now()) {
+  const receipt = previous?.verificationReceipt;
+  const observedAt = Date.parse(receipt?.verifiedAt);
+  const age = now - observedAt;
+  return Boolean(
+    previous?.schemaVersion === 1 &&
+      previous?.pluginId === pluginId &&
+      previous?.headRevision === current?.headRevision &&
+      receipt?.schemaVersion === 1 &&
+      receipt?.result === "passed" &&
+      receipt?.headRevision === current?.headRevision &&
+      receipt?.worktreeFingerprint === current?.worktreeFingerprint &&
+      receipt?.pluginVersion === pluginVersion &&
+      Number.isFinite(observedAt) &&
+      age >= 0 &&
+      age <= hookEvidenceLifetimeMs,
+  );
+}
+
+function recordVerificationReceipt(root, route, host) {
+  writeProjectJson(root, "route.json", {
+    ...route,
+    verificationReceipt: {
+      schemaVersion: 1,
+      result: "passed",
+      verifiedAt: new Date().toISOString(),
+      pluginVersion,
+      host,
+      headRevision: route.headRevision,
+      worktreeFingerprint: route.worktreeFingerprint,
+    },
+  });
+}
+
 function checkEditScope(root, input, host) {
   if (!existsSync(resolve(root, ".echo-semantic/baseline.md"))) {
     writeVisibleStatus(root, {
@@ -507,6 +642,64 @@ function checkEditScope(root, input, host) {
     );
     return;
   }
+  if (
+    isDeleteTool(input) &&
+    (state.risk !== "high" ||
+      !Array.isArray(state.repairRefs) ||
+      state.repairRefs.length === 0 ||
+      !state.repairRefs.some((reference) => {
+        const metadata = semanticObjectMetadata(root, reference);
+        return (
+          metadata?.kind === "finding" &&
+          metadata?.status === "resolved" &&
+          metadata.type === "consolidation_candidate" &&
+          ["merge", "migrate", "retire"].includes(metadata.decision) &&
+          metadata.deletePaths.some((path) =>
+            pathAllowed(relativePath, [path]),
+          ) &&
+          metadata.replacementRefs.length > 0 &&
+          metadata.replacementRefs.includes(metadata.canonicalAssetRef) &&
+          metadata.candidateAssetRefs.length >= 2 &&
+          metadata.candidateAssetRefs.every((assetRef) => {
+            const asset = semanticObjectMetadata(root, assetRef);
+            return asset?.kind === "asset";
+          }) &&
+          metadata.candidateAssetRefs.includes(metadata.canonicalAssetRef) &&
+          metadata.candidateAssetRefs.some((assetRef) => {
+            const asset = semanticObjectMetadata(root, assetRef);
+            return asset?.codeRefs.some((codeRef) =>
+              pathAllowed(relativePath, [codeRef.split("#", 1)[0]]),
+            );
+          }) &&
+          metadata.rollbackRef.length > 0 &&
+          metadata.verificationEvidenceRefs.length > 0 &&
+          metadata.verificationEvidenceRefs.every((evidenceRef) => {
+            const evidence = semanticObjectMetadata(root, evidenceRef);
+            return (
+              evidence?.kind === "evidence" &&
+              evidence.evidenceType === "behavior_equivalence" &&
+              evidence.beforeRevision.length > 0 &&
+              evidence.afterRevision.length > 0 &&
+              evidence.evidenceDeletedPaths.some((path) =>
+                pathAllowed(relativePath, [path]),
+              ) &&
+              evidence.scenarioStatuses.length > 0 &&
+              evidence.scenarioStatuses.every((status) => status === "matched")
+            );
+          })
+        );
+      }) ||
+      !Array.isArray(state.deletePaths) ||
+      !state.deletePaths.includes(relativePath))
+  ) {
+    deny(
+      `删除路径没有已批准的 repair 授权：${relativePath}`,
+      root,
+      host,
+      "pre-edit",
+    );
+    return;
+  }
   writeVisibleStatus(root, {
     state: "ready",
     event: "pre-edit",
@@ -529,8 +722,12 @@ function stop(root, input, host) {
     emit();
     return;
   }
+  const previousRoute = readRoute(root);
+  let route;
   try {
-    computeRoute(root, host || "unknown", "stop", { observedEvent: "stop" });
+    route = computeRoute(root, host || "unknown", "stop", {
+      observedEvent: "stop",
+    });
   } catch (error) {
     deny(`无法记录停止 Hook 证据：${error.message}`, root, host, "stop");
     return;
@@ -549,6 +746,16 @@ function stop(root, input, host) {
   }
   const state = validState(root);
   if (!state || typeof state.baseRevision !== "string") {
+    if (isRepeatedVerifiedWorktree(previousRoute, route)) {
+      writeVisibleStatus(root, {
+        state: "idle",
+        event: "stop",
+        host,
+        message: "当前工作树已通过此前 Stop 语义门禁",
+      });
+      emit();
+      return;
+    }
     deny("仓库已有变化但没有有效 semantic-preflight 记录", root, host, "stop");
     return;
   }
@@ -575,6 +782,12 @@ function stop(root, input, host) {
     deny(`语义完成门禁未通过：${detail}`, root, host, "stop");
     return;
   }
+  try {
+    recordVerificationReceipt(root, route, host);
+  } catch (error) {
+    deny(`无法记录语义验证收据：${error.message}`, root, host, "stop");
+    return;
+  }
   clearState(root);
   clearContinuation(root);
   writeVisibleStatus(root, {
@@ -592,6 +805,7 @@ function checkpoint(root, host, input) {
     try {
       const route = computeRoute(root, host || "unknown", "pre-compact", {
         observedEvent: "pre-compact",
+        taskId: taskIdFromInput(input),
       });
       checkpointFromPreflight(root, state, route);
       writeVisibleStatus(root, {
@@ -662,7 +876,10 @@ export function main() {
           root,
           host || "unknown",
           input.source || "session-start",
-          { observedEvent: "session-start" },
+          {
+            observedEvent: "session-start",
+            taskId: taskIdFromInput(input),
+          },
         );
         continuation = readContinuation(root, taskIdFromInput(input));
       } catch (error) {

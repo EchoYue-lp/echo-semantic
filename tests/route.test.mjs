@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -115,7 +121,113 @@ test("路由器按基线和差异选择 bootstrap、fast、standard、strict", (
   assert.equal(route(root, "codex").route, "standard");
   mkdirSync(resolve(root, "contracts"));
   writeFileSync(resolve(root, "contracts/api.json"), "{}\n", "utf8");
-  assert.equal(route(root, "codex").route, "strict");
+  const strict = route(root, "codex");
+  assert.equal(strict.route, "strict");
+  assert.deepEqual(strict.skills, [
+    "semantic-preflight",
+    "semantic-diff",
+    "semantic-audit",
+    "semantic-consolidate",
+    "semantic-repair",
+    "semantic-verify",
+  ]);
+});
+
+test("没有任务和工作树变化时进入仓库语义维护，明确任务时保留任务范围", () => {
+  const root = mkdtempSync(
+    resolve(tmpdir(), "echo-semantic-route-maintenance-"),
+  );
+  git(root, "init", "-q");
+  git(root, "config", "user.email", "test@example.com");
+  git(root, "config", "user.name", "Test");
+  mkdirSync(resolve(root, ".echo-semantic"), { recursive: true });
+  writeFileSync(
+    resolve(root, ".echo-semantic/baseline.md"),
+    "baseline\n",
+    "utf8",
+  );
+  git(root, "add", ".echo-semantic/baseline.md");
+  git(root, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
+
+  const maintenance = computeRoute(root, "codex", "manual", {
+    probe: () => ({ detected: true, version: "test" }),
+  });
+  assert.equal(maintenance.route, "maintenance");
+  assert.equal(maintenance.scope, "repository");
+  assert.deepEqual(maintenance.skills, [
+    "semantic-discover",
+    "semantic-status",
+    "semantic-consolidate",
+    "semantic-audit",
+    "semantic-verify",
+  ]);
+
+  const task = computeRoute(root, "codex", "manual", {
+    probe: () => ({ detected: true, version: "test" }),
+    scope: "task",
+  });
+  assert.equal(task.route, "bootstrap");
+  assert.equal(task.scope, "task");
+  assert.deepEqual(task.skills, ["semantic-preflight", "semantic-verify"]);
+});
+
+test("遗留预检没有匹配当前任务标识时仍进入仓库维护", () => {
+  const root = mkdtempSync(
+    resolve(tmpdir(), "echo-semantic-route-stale-task-preflight-"),
+  );
+  git(root, "init", "-q");
+  git(root, "config", "user.email", "test@example.com");
+  git(root, "config", "user.name", "Test");
+  mkdirSync(resolve(root, ".echo-semantic"), { recursive: true });
+  writeFileSync(resolve(root, ".echo-semantic/baseline.md"), "baseline\n");
+  git(root, "add", ".");
+  git(root, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
+  appendFileSync(resolve(root, ".git/info/exclude"), ".echo-semantic/*.json\n");
+  const head = git(root, "rev-parse", "HEAD");
+  writeFileSync(
+    resolve(root, ".echo-semantic/preflight.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      pluginId: "echo-semantic",
+      scope: "task",
+      repositoryRoot: realpathSync(root),
+      baseRevision: head,
+      taskId: "old-task",
+      recordedAt: new Date().toISOString(),
+      kind: "refactor",
+      risk: "low",
+      allowedPaths: ["src"],
+      reuse: ["existing"],
+      verifications: ["test"],
+      basis: [],
+      semanticRefs: [],
+      repairRefs: [],
+      deletePaths: [],
+      signals: {
+        publicApi: false,
+        newStateAuthority: false,
+        newProtocol: false,
+        crossServiceMigration: false,
+        architectureChange: false,
+        unknownProductionCode: false,
+      },
+      boundaryDecision: { createsNew: false, reason: "existing boundary" },
+      designAuthorities: [],
+    }),
+  );
+
+  const repository = computeRoute(root, "codex", "manual", {
+    probe: () => ({ detected: true, version: "test" }),
+  });
+  assert.equal(repository.route, "maintenance");
+  assert.equal(repository.scope, "repository");
+
+  const task = computeRoute(root, "codex", "manual", {
+    probe: () => ({ detected: true, version: "test" }),
+    taskId: "old-task",
+  });
+  assert.equal(task.scope, "task");
+  assert.equal(task.route, "bootstrap");
 });
 
 test("纯测试和示例源码走 fast，治理控制面仍走 strict", () => {

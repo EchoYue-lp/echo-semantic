@@ -7,7 +7,7 @@ expectation: inferred
 risk: high
 primary_focus: state_authority
 focus: [contract_evidence]
-observed_at: source:0601ac04b1ed498782b4462cee66859c92500770eb0a401cf53e3072fdac7214
+observed_at: source:cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
 behavior_refs:
   [behavior.preflight-before-write, behavior.multi-host-installation]
 code_refs:
@@ -29,7 +29,7 @@ finding_refs: []
 
 ## 当前实现
 
-七个 Skill 共享一份合同，三个 manifest 只引用同一目录；预检、路由和继续包位于同一 `.echo-semantic/`，仅运行态文件被排除出 Git。
+十个 Skill 共享一份合同，三个 manifest 只引用同一目录；预检、路由和继续包位于同一 `.echo-semantic/`，仅运行态文件被排除出 Git。
 
 ## 期望行为
 

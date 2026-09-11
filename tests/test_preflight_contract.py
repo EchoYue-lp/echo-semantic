@@ -16,6 +16,7 @@ def valid_record(root: Path) -> dict[str, object]:
     return {
         "schemaVersion": 1,
         "pluginId": "echo-semantic",
+        "scope": "task",
         "repositoryRoot": str(root.resolve()),
         "baseRevision": "a" * 40,
         "recordedAt": datetime.now(timezone.utc).isoformat(),
@@ -74,6 +75,47 @@ class PreflightContractTest(unittest.TestCase):
         errors = validate_preflight(record, root, current_head="a" * 40)
         self.assertTrue(any("reuse" in error for error in errors))
         self.assertTrue(any("verifications" in error for error in errors))
+
+    def test_repair_reference_must_target_completed_finding(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="echo-preflight-repair-") as temp:
+            root = Path(temp)
+            finding = root / ".echo-semantic/findings/finding.repair.md"
+            finding.parent.mkdir(parents=True)
+            finding.write_text(
+                "---\nid: finding.repair\nkind: finding\nstatus: open\n---\n",
+                encoding="utf-8",
+            )
+            record = valid_record(root)
+            record["repairRefs"] = ["finding.repair"]
+            record["deletePaths"] = ["src/old.py"]
+            errors = validate_preflight(record, root, current_head="a" * 40)
+            self.assertTrue(any("已完成的 Finding" in error for error in errors))
+
+    def test_delete_repair_requires_path_replacement_and_rollback_fields(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="echo-preflight-repair-fields-"
+        ) as temp:
+            root = Path(temp)
+            finding = root / ".echo-semantic/findings/finding.repair.md"
+            finding.parent.mkdir(parents=True)
+            finding.write_text(
+                "---\nid: finding.repair\nkind: finding\nstatus: resolved\n---\n",
+                encoding="utf-8",
+            )
+            record = valid_record(root)
+            record["repairRefs"] = ["finding.repair"]
+            record["deletePaths"] = ["src/old.py"]
+            errors = validate_preflight(record, root, current_head="a" * 40)
+            self.assertTrue(any("delete_paths" in error for error in errors))
+            self.assertTrue(any("replacement_refs" in error for error in errors))
+            self.assertTrue(any("rollback_ref" in error for error in errors))
+
+    def test_delete_requires_high_risk(self) -> None:
+        root = Path("/tmp/echo-semantic-contract")
+        record = valid_record(root)
+        record["deletePaths"] = ["src/old.py"]
+        errors = validate_preflight(record, root, current_head="a" * 40)
+        self.assertTrue(any("risk 必须是 high" in error for error in errors))
 
     def test_architecture_signal_requires_evidence_and_authority(self) -> None:
         root = Path("/tmp/echo-semantic-contract")

@@ -7,7 +7,7 @@
 - `behaviors/`：重要行为承诺；
 - `rules/`：不变量和唯一权威；
 - `evidence/`：可复用证据；
-- `findings/`、`audits/`、`discovery/`：问题、定向审查和发现证据。
+- `findings/`、`audits/`、`discovery/`、`assets/`：问题、定向审查、发现证据和语义资产。
 
 `inventory_closure` 只表达当前路径与风险视角是否已有去向；`behavior_model_closure` 只表达能力场景是否已经充分展开。
 两者都不表示插件没有缺陷。

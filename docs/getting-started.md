@@ -107,10 +107,14 @@ Agent 应在目标项目创建：
 ├── evidence/
 ├── findings/
 ├── audits/
-└── discovery/
+├── discovery/
+└── assets/
 ```
 
 将 `.echo-semantic/` 与项目代码一起纳入版本控制。它是项目长期语义事实，不属于插件安装目录。
+
+插件单独触发且没有明确任务时，路由会对 Baseline 覆盖的已完成代码执行仓库级盘点、状态汇总、定向审查和验证；
+有明确任务时，先用 `semantic-preflight` 限定本次行动项的允许路径。
 
 ## 完成第一次受治理变更
 

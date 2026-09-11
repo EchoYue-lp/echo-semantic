@@ -31,12 +31,17 @@ if (result.error) {
   );
   const required = [
     ".echo-semantic/baseline.md",
+    ".echo-semantic/assets/.gitkeep",
     "hooks/hooks.json",
     "hooks/plugin-entry.mjs",
     "runtime/project-state.mjs",
     "scripts/preflight_contract.py",
     "skills/semantic-contract/references/semantic-artifact-contract.md",
     "skills/semantic-preflight/SKILL.md",
+    "skills/semantic-consolidate/SKILL.md",
+    "skills/semantic-repair/SKILL.md",
+    "skills/semantic-discover/scripts/inventory.py",
+    "skills/semantic-consolidate/scripts/consolidate.py",
     "skills/semantic-preflight/references/routing-cases.md",
     "skills/semantic-preflight/workflows/architecture-convergence.md",
   ];

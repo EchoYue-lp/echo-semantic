@@ -44,6 +44,7 @@ test("PreCompact 保存继续包，resume 只恢复仍可信的任务", () => {
     JSON.stringify({
       schemaVersion: 1,
       pluginId: "echo-semantic",
+      scope: "task",
       repositoryRoot: realpathSync(repository),
       baseRevision: head,
       recordedAt: new Date().toISOString(),

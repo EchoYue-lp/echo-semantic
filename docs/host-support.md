@@ -102,16 +102,16 @@ node bin/install.mjs install claude-code
 安装器通过 Claude Code Marketplace CLI 删除当前和旧 ID，再安装 `echo-semantic@echo-semantic`。Claude Code 与 Codex 共用
 插件内 `hooks/hooks.json`，入口根据 `CLAUDE_PLUGIN_ROOT` / `PLUGIN_ROOT` 选择宿主输出。安装后新建会话，并确保 CLI 已登录。
 
-Claude Code 使用 `SessionStart`、`PreToolUse`、`PreCompact` 和 `Stop`。编辑前只匹配 `Edit|Write`，不会拦截只读工具。
+Claude Code 使用 `SessionStart`、`PreToolUse`、`PreCompact` 和 `Stop`。编辑前匹配 `Edit|Write|Delete`，只对有效预检和批准删除范围执行阻断。
 
 ## 共享事件映射
 
-| 共享语义 | Codex          | Cursor         | Claude Code                    |
-| -------- | -------------- | -------------- | ------------------------------ |
-| 会话开始 | `SessionStart` | `sessionStart` | `SessionStart`                 |
-| 编辑前   | 暂无稳定覆盖   | `preToolUse`   | `PreToolUse`，匹配 `Edit|Write` |
-| 压缩前   | `PreCompact`   | `preCompact`   | `PreCompact`                   |
-| 停止前   | `Stop`         | `stop`（followup） | `Stop`                         |
+| 共享语义 | Codex          | Cursor             | Claude Code                            |
+| -------- | -------------- | ------------------ | -------------------------------------- |
+| 会话开始 | `SessionStart` | `sessionStart`     | `SessionStart`                         |
+| 编辑前   | 暂无稳定覆盖   | `preToolUse`       | `PreToolUse`，匹配 `Edit \| Write \| Delete` |
+| 压缩前   | `PreCompact`   | `preCompact`       | `PreCompact`                           |
+| 停止前   | `Stop`         | `stop`（followup） | `Stop`                                 |
 
 宿主输出也不同：Cursor 使用 `additional_context`，Codex 和 Claude Code 使用 `hookSpecificOutput.additionalContext`。适配差异不得进入语义 Skill 正文。
 

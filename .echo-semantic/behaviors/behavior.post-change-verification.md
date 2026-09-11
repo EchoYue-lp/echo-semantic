@@ -8,7 +8,7 @@ risk: high
 primary_focus: failure_concurrency
 focus: [contract_evidence, time_lifecycle]
 boundary: boundary.lifecycle-enforcement
-observed_at: source:0601ac04b1ed498782b4462cee66859c92500770eb0a401cf53e3072fdac7214
+observed_at: source:cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
 code_refs:
   - hooks/entry.mjs#function stop
   - hooks/entry.mjs#function deny
@@ -32,7 +32,8 @@ finding_refs: []
 ## 当前行为
 
 Hook 检查预检状态并运行严格校验；Action 在独立环境重新检查最终 Git 差异；PreCompact 保存带证据摘要的任务继续包，
-resume 只恢复仍匹配当前仓库和分支的继续包。Codex 与 Claude Code 停止失败返回 `decision: block` 且退出码 2；
+resume 只恢复仍匹配当前仓库和分支的继续包。相同 HEAD、完整工作树内容指纹和插件版本的重复 Stop 会复用新鲜成功验证收据，
+避免宿主重入在预检消费后再次阻断；一旦任一条件变化仍要求新的预检。Codex 与 Claude Code 停止失败返回 `decision: block` 且退出码 2；
 Cursor 停止失败只发送 `followup_message` 且退出码 0，不能阻断会话结束。编辑前 Cursor 使用 `permission`，其它宿主仍用 `decision`。
 
 ## 期望行为

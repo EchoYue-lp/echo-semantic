@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -25,6 +25,23 @@ const hookEvents = {
   "pre-compact": "preCompact",
   stop: "stop",
 };
+const preflightKinds = new Set([
+  "bugfix",
+  "feature",
+  "refactor",
+  "contract",
+  "style",
+]);
+const preflightRisks = new Set(["low", "medium", "high"]);
+const preflightSignals = new Set([
+  "publicApi",
+  "newStateAuthority",
+  "newProtocol",
+  "crossServiceMigration",
+  "architectureChange",
+  "unknownProductionCode",
+]);
+const taskIdPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
 function git(root, args) {
   const result = spawnSync("git", ["-C", root, ...args], {
@@ -41,6 +58,30 @@ function gitStatus(root) {
     { encoding: "utf8", timeout: 10_000 },
   );
   return result.status === 0 ? result.stdout : null;
+}
+
+function worktreeFingerprint(root, status, paths) {
+  if (status === null) return null;
+  const digest = createHash("sha256");
+  digest.update(status);
+  for (const relative of paths) {
+    digest.update(`\n${relative}\0`);
+    const path = resolve(root, relative);
+    try {
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) {
+        digest.update(`symlink:${readlinkSync(path)}`);
+      } else if (stat.isFile()) {
+        digest.update("file:");
+        digest.update(readFileSync(path));
+      } else {
+        digest.update("other");
+      }
+    } catch {
+      digest.update("missing");
+    }
+  }
+  return digest.digest("hex");
 }
 
 function statePath(root) {
@@ -110,6 +151,67 @@ function isFastPath(path) {
   );
 }
 
+function hasCurrentTaskPreflight(root, headRevision, taskId) {
+  try {
+    const value = JSON.parse(
+      readFileSync(resolve(root, ".echo-semantic/preflight.json"), "utf8"),
+    );
+    const recordedAt = Date.parse(value?.recordedAt);
+    const age = Date.now() - recordedAt;
+    const stringList = (items, required = false) =>
+      Array.isArray(items) &&
+      (!required || items.length > 0) &&
+      items.every((item) => typeof item === "string" && item.trim());
+    const relativePaths = (items, required = false) =>
+      stringList(items, required) &&
+      items.every(
+        (item) =>
+          item !== "." &&
+          !item.startsWith("/") &&
+          !item.split(/[\\/]/).includes(".."),
+      );
+    const signals = value?.signals;
+    const boundary = value?.boundaryDecision;
+    const taskIdentityMatches =
+      typeof taskId === "string" && taskId.trim() && value?.taskId === taskId;
+    return (
+      value?.schemaVersion === 1 &&
+      value?.pluginId === pluginId &&
+      value?.repositoryRoot === root &&
+      value?.baseRevision === headRevision &&
+      taskIdentityMatches &&
+      taskIdPattern.test(String(value?.taskId ?? "")) &&
+      preflightKinds.has(value?.kind) &&
+      preflightRisks.has(value?.risk) &&
+      Number.isFinite(recordedAt) &&
+      age >= 0 &&
+      age <= 24 * 60 * 60 * 1000 &&
+      relativePaths(value?.allowedPaths, true) &&
+      stringList(value?.reuse, true) &&
+      stringList(value?.verifications, true) &&
+      stringList(value?.basis) &&
+      stringList(value?.semanticRefs) &&
+      stringList(value?.repairRefs) &&
+      relativePaths(value?.deletePaths) &&
+      signals &&
+      typeof signals === "object" &&
+      !Array.isArray(signals) &&
+      Object.keys(signals).length === preflightSignals.size &&
+      [...preflightSignals].every(
+        (name) => typeof signals[name] === "boolean",
+      ) &&
+      boundary &&
+      typeof boundary === "object" &&
+      typeof boundary.createsNew === "boolean" &&
+      typeof boundary.reason === "string" &&
+      boundary.reason.trim() &&
+      Array.isArray(value?.designAuthorities)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function writeState(root, value) {
   writeProjectJson(root, "route.json", value);
 }
@@ -147,7 +249,13 @@ export function computeRoute(
   root,
   host = "unknown",
   event = "manual",
-  { probe = probeHost, observedEvent = null, now = () => new Date() } = {},
+  {
+    probe = probeHost,
+    observedEvent = null,
+    now = () => new Date(),
+    scope = "auto",
+    taskId = null,
+  } = {},
 ) {
   root = resolve(git(root, ["rev-parse", "--show-toplevel"]) || root);
   const previous = readRoute(root);
@@ -160,6 +268,9 @@ export function computeRoute(
   }
   const baseline = existsSync(resolve(root, ".echo-semantic/baseline.md"));
   const headRevision = git(root, ["rev-parse", "HEAD"]);
+  const taskScoped =
+    scope === "task" ||
+    (scope === "auto" && hasCurrentTaskPreflight(root, headRevision, taskId));
   const worktreeStatus = gitStatus(root);
   const paths = changedPaths(root, worktreeStatus);
   const high = classify(paths);
@@ -190,6 +301,15 @@ export function computeRoute(
   if (!baseline) {
     route = "bootstrap";
     skills = ["semantic-discover", "semantic-verify"];
+  } else if (paths.length === 0 && !taskScoped) {
+    route = "maintenance";
+    skills = [
+      "semantic-discover",
+      "semantic-status",
+      "semantic-consolidate",
+      "semantic-audit",
+      "semantic-verify",
+    ];
   } else if (conservative) {
     route = "bootstrap";
     skills = ["semantic-preflight", "semantic-verify"];
@@ -199,6 +319,8 @@ export function computeRoute(
       "semantic-preflight",
       "semantic-diff",
       "semantic-audit",
+      "semantic-consolidate",
+      "semantic-repair",
       "semantic-verify",
     ];
   } else if (paths.length > 0) {
@@ -221,13 +343,16 @@ export function computeRoute(
       worktreeStatus === null
         ? null
         : createHash("sha256").update(worktreeStatus).digest("hex"),
+    worktreeFingerprint: worktreeFingerprint(root, worktreeStatus, paths),
     host,
+    scope: taskScoped ? "task" : "repository",
     event,
     route,
     skills,
     changedPaths: paths,
     highRiskPaths: high,
     hookEvidence,
+    verificationReceipt: previous?.verificationReceipt ?? null,
     enforcement: {
       preEdit:
         Boolean(hookEvidence.preEdit) && capabilities.hooks.preToolUse === true,

@@ -17,6 +17,7 @@ function record(root, currentTime) {
   return {
     schemaVersion: 1,
     pluginId: "echo-semantic",
+    scope: "task",
     repositoryRoot: realpathSync(root),
     baseRevision: "a".repeat(40),
     recordedAt: new Date(currentTime).toISOString(),

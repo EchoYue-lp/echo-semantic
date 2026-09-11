@@ -114,6 +114,48 @@ class PreflightTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("--basis", result.stderr)
 
+    def test_records_controlled_delete_targets_and_repair_reference(self) -> None:
+        finding = self.repository / ".echo-semantic/findings/finding.repair.md"
+        finding.parent.mkdir(parents=True, exist_ok=True)
+        finding.write_text(
+            "---\nid: finding.repair\nkind: finding\nstatus: resolved\ntype: consolidation_candidate\ndecision: migrate\ncanonical_asset_ref: asset.new\ndelete_paths: [src/old.py]\nreplacement_refs: [asset.new]\nrollback_ref: revert-old\n---\n",
+            encoding="utf-8",
+        )
+        result = self.run_script(
+            "record",
+            "--root",
+            str(self.repository),
+            "--kind",
+            "refactor",
+            "--risk",
+            "high",
+            "--allow",
+            "src",
+            "--reuse",
+            "finding.repair",
+            "--verify",
+            "project test",
+            "--repair-ref",
+            "finding.repair",
+            "--delete-path",
+            "src/old.py",
+            "--basis",
+            "受控删除",
+            "--semantic-ref",
+            "finding.repair",
+            "--reuse-existing-boundary",
+            "复用已有重构边界",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(
+            (self.repository / ".echo-semantic/preflight.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(state["repairRefs"], ["finding.repair"])
+        self.assertEqual(state["deletePaths"], ["src/old.py"])
+        self.assertEqual(state["scope"], "task")
+
     def test_high_risk_rejects_missing_semantic_object(self) -> None:
         result = self.run_script(
             "record",

@@ -22,12 +22,13 @@ carrier: markdown
 
 本项目的目标是建立一个项目无关的 Coding Agent 语义治理控制面：
 
-1. 代码生成前确认复用关系、唯一状态权威、允许修改路径和验证矩阵；
-2. 根据仓库基线、宿主能力和当前差异选择合适的治理深度；
-3. 在宿主支持时，于编辑前阻断超出预检范围的写入；
-4. 在上下文压缩前保存有证据约束的短期恢复线索；
-5. 在任务停止和 CI 合并时重新执行确定性语义验证；
-6. 让 formatter、Lint、类型、单元、契约和集成测试继续拥有实现质量权威。
+1. 没有明确任务时盘点 Baseline 覆盖的已完成代码，执行仓库级语义维护；
+2. 有明确任务时确认复用关系、唯一状态权威、允许修改路径和验证矩阵；
+3. 根据仓库基线、宿主能力、任务范围和当前差异选择合适的治理深度；
+4. 在宿主支持时，于编辑前阻断超出预检范围的写入和未授权删除；
+5. 在上下文压缩前保存有证据约束的短期恢复线索；
+6. 在任务停止和 CI 合并时重新执行确定性语义验证；
+7. 让 formatter、Lint、类型、单元、契约和集成测试继续拥有实现质量权威。
 
 ## 目标行为
 
@@ -35,6 +36,8 @@ carrier: markdown
 - 已采用项目必须在修改前拥有与当前仓库、HEAD 和任务匹配的 `semantic-preflight`；
 - 文档、配置、测试等低风险变化走 `fast`，普通非源码变化走 `standard`，生产源码、协议、迁移和治理控制面变化走 `strict`；
 - 高风险变化必须同时更新语义对象，架构类变化还必须绑定并更新正式 design/ADR；
+- 没有明确任务且没有新工作树变化时进入 `maintenance`，建议执行全仓盘点、状态汇总、定向审查和验证；
+- 明确任务只允许其 `semantic-preflight` 路径和语义引用参与修复，不把全仓候选混入任务差异；
 - 任何短期状态失效都只能导致重新预检或降级，不能放宽编辑和停止门禁；
 - Hook 缺失、宿主不支持或未取得真实会话证据时，由 Stop 和 CI 收口，不宣称完整运行时覆盖。
 
@@ -45,6 +48,7 @@ carrier: markdown
 - Codex、Cursor、Claude Code 的插件清单、安装、Skill、只读 Agent 和 Hook 适配；
 - Capability、Behavior、Rule、Evidence、Finding、Audit、Discovery 的 Markdown 合同；
 - `semantic-preflight`、风险路由、任务继续包和状态汇总；
+- 语义资产盘点、候选归并、受控修复和行为等价 Evidence；
 - 严格快照、源码引用、路径分类、高风险依据和 CI 变更门禁。
 
 ### 非目标
@@ -53,6 +57,7 @@ carrier: markdown
 - 不替代 Coding Agent 的编码、规划和普通代码审查能力；
 - 不把预检、路由或继续包升级为业务状态权威；
 - 不复制采用方已有的 design/ADR、任务系统、测试系统或工程规范；
+- 不提供形式化行为等价证明、无监督 Git merge 或无监督批量删除；
 - 当前不提供 MCP Server；本地文件和 Git 足以完成现有确定性验证。
 
 ## 系统边界
@@ -83,7 +88,7 @@ flowchart TB
   end
 
   subgraph Judgment["模型判断层"]
-    Skills[八个语义 Skill]
+    Skills[十个语义 Skill]
     Reviewers[三个只读审查 Agent]
   end
 
@@ -127,7 +132,7 @@ echo-semantic/
 ├── bin/                        # 多宿主安装与卸载入口
 ├── hooks/                      # Codex/Claude 原生 Hook、Cursor 映射和共享入口
 ├── runtime/                    # 能力探测、风险路由和任务继续包
-├── skills/                     # 八个语义 Skill 真理源
+├── skills/                     # 十个语义 Skill 真理源
 ├── scripts/                    # 插件与设计合同校验
 ├── .echo-semantic/             # 插件自身的语义基线
 ├── tests/                      # Node 与 Python 回归测试
@@ -138,34 +143,34 @@ echo-semantic/
 
 ## 组件职责
 
-| 组件       | 主要路径                                                           | 职责                                                     | 不拥有的内容                 |
-| ---------- | ------------------------------------------------------------------ | -------------------------------------------------------- | ---------------------------- |
-| 插件清单   | `.codex-plugin/`、`.cursor-plugin/`、`.claude-plugin/`、`.agents/` | 声明插件 ID、展示信息和 Skill/Agent 入口                 | 业务语义和路由策略           |
-| 安装器     | `bin/install.mjs`                                                  | 检测宿主、按渠道安装/卸载、覆盖当前版本、清理旧 ID 投影  | 事务协调和业务状态           |
-| Hook 入口  | `hooks/entry.mjs`                                                  | 统一解析三端事件，接入路由、编辑范围、压缩恢复和停止验证 | 语义判断和长期材料写入       |
-| 能力矩阵   | `runtime/capabilities/`                                            | 保存静态宿主能力合同并探测当前安装与版本                 | 真实会话已经成功的结论       |
-| 风险路由   | `runtime/route.mjs`                                                | 根据基线、宿主探测和 Git 差异计算治理深度                | 持久任务阶段和人工决策       |
-| 继续包     | `runtime/continuation.mjs`                                         | 保存并校验短期任务恢复线索及证据摘要                     | 完整对话、审批状态和长期事实 |
-| 状态视图   | `skills/semantic-status/`                                          | 汇总结构、新鲜度、开放问题和唯一下一入口                 | 完整语义验证结论             |
-| 语义 Skill | `skills/`                                                          | 完成发现、预检、差异、审查、裁决和验证协作               | 宿主生命周期强制执行         |
-| 只读 Agent | `agents/`                                                          | 独立探索边界、复核能力闭合、挑战高风险假设               | 长期材料写入权               |
-| 校验器     | `skills/semantic-contract/scripts/verify_semantic.py`              | 校验快照、引用、分类、关系和高风险变更依据               | 业务预期裁决和代码风格       |
-| CI Action  | `action.yml`                                                       | 在独立环境重跑最终语义门禁                               | 取代项目自己的工程测试       |
+| 组件       | 主要路径                                                           | 职责                                                               | 不拥有的内容                 |
+| ---------- | ------------------------------------------------------------------ | ------------------------------------------------------------------ | ---------------------------- |
+| 插件清单   | `.codex-plugin/`、`.cursor-plugin/`、`.claude-plugin/`、`.agents/` | 声明插件 ID、展示信息和 Skill/Agent 入口                           | 业务语义和路由策略           |
+| 安装器     | `bin/install.mjs`                                                  | 检测宿主、按渠道安装/卸载、覆盖当前版本、清理旧 ID 投影            | 事务协调和业务状态           |
+| Hook 入口  | `hooks/entry.mjs`                                                  | 统一解析三端事件，接入路由、编辑范围、压缩恢复和停止验证           | 语义判断和长期材料写入       |
+| 能力矩阵   | `runtime/capabilities/`                                            | 保存静态宿主能力合同并探测当前安装与版本                           | 真实会话已经成功的结论       |
+| 风险路由   | `runtime/route.mjs`                                                | 根据基线、宿主探测、任务范围和 Git 差异计算治理深度                | 持久任务阶段和人工决策       |
+| 继续包     | `runtime/continuation.mjs`                                         | 保存并校验短期任务恢复线索及证据摘要                               | 完整对话、审批状态和长期事实 |
+| 状态视图   | `skills/semantic-status/`                                          | 汇总结构、新鲜度、开放问题和唯一下一入口                           | 完整语义验证结论             |
+| 语义 Skill | `skills/`                                                          | 完成维护、发现、盘点、归并、预检、差异、修复、审查、裁决和验证协作 | 宿主生命周期强制执行         |
+| 只读 Agent | `agents/`                                                          | 独立探索边界、复核能力闭合、挑战高风险假设                         | 长期材料写入权               |
+| 校验器     | `skills/semantic-contract/scripts/verify_semantic.py`              | 校验快照、引用、分类、关系、删除依据和等价 Evidence                | 业务预期裁决和代码风格       |
+| CI Action  | `action.yml`                                                       | 在独立环境重跑最终语义门禁                                         | 取代项目自己的工程测试       |
 
 ## 状态权威与存储
 
-| 状态或材料                            | 位置                                      | 生命周期                         | 权威级别         | 失效策略                       |
-| ------------------------------------- | ----------------------------------------- | -------------------------------- | ---------------- | ------------------------------ |
-| Capability、Behavior、Rule 等长期事实 | `.echo-semantic/`                         | 随 Git 版本演进                  | 项目语义唯一权威 | 摘要、引用或关系失效即阻断验证 |
-| 产品与架构决策                        | 项目 design/ADR                           | 随 Git 版本演进                  | 产品和架构权威   | 内容摘要变化后重新绑定         |
-| 用户可见状态                          | `.echo-semantic/status.md`、`status.json` | 每个生命周期事件更新             | 用户可见运行投影 | 共享 revision 检测中断不一致  |
-| 任务预检                              | `.echo-semantic/preflight.json`           | 最长 24 小时、绑定当前 HEAD      | 当前任务写入合同 | 过期、仓库或 HEAD 不匹配即无效 |
+| 状态或材料                            | 位置                                      | 生命周期                         | 权威级别         | 失效策略                             |
+| ------------------------------------- | ----------------------------------------- | -------------------------------- | ---------------- | ------------------------------------ |
+| Capability、Behavior、Rule 等长期事实 | `.echo-semantic/`                         | 随 Git 版本演进                  | 项目语义唯一权威 | 摘要、引用或关系失效即阻断验证       |
+| 产品与架构决策                        | 项目 design/ADR                           | 随 Git 版本演进                  | 产品和架构权威   | 内容摘要变化后重新绑定               |
+| 用户可见状态                          | `.echo-semantic/status.md`、`status.json` | 每个生命周期事件更新             | 用户可见运行投影 | 共享 revision 检测中断不一致         |
+| 任务预检                              | `.echo-semantic/preflight.json`           | 最长 24 小时、绑定当前 HEAD      | 当前任务写入合同 | 过期、仓库或 HEAD 不匹配即无效       |
 | 风险路由                              | `.echo-semantic/route.json`               | 每次 SessionStart 或显式计算刷新 | 可丢弃计算结果   | HEAD、工作树摘要或时间失效时重新计算 |
-| 任务继续包                            | `.echo-semantic/continuation.json`        | 最长 7 天、绑定任务/分支/证据    | 可丢弃恢复线索   | 任一证据摘要变化即忽略         |
-| 安装状态                              | `~/.echo-semantic/install-state.json`     | 用户级安装期间                   | 安装器记录       | 全部卸载后删除                 |
-| 原生宿主分发副本                      | `~/.echo-semantic/distribution/`          | Codex 或 Claude Code 已安装期间  | 可覆盖安装投影   | 最后一个原生渠道卸载后删除     |
-| 宿主注册与缓存                        | Codex、Cursor、Claude Code 用户目录       | 由宿主管理                       | 安装投影         | 重装覆盖，卸载撤回             |
-| 工程验证结果                          | 项目工具与 CI                             | 每次变更重新产生                 | 实现质量权威     | 任何失败均不得以语义材料替代   |
+| 任务继续包                            | `.echo-semantic/continuation.json`        | 最长 7 天、绑定任务/分支/证据    | 可丢弃恢复线索   | 任一证据摘要变化即忽略               |
+| 安装状态                              | `~/.echo-semantic/install-state.json`     | 用户级安装期间                   | 安装器记录       | 全部卸载后删除                       |
+| 原生宿主分发副本                      | `~/.echo-semantic/distribution/`          | Codex 或 Claude Code 已安装期间  | 可覆盖安装投影   | 最后一个原生渠道卸载后删除           |
+| 宿主注册与缓存                        | Codex、Cursor、Claude Code 用户目录       | 由宿主管理                       | 安装投影         | 重装覆盖，卸载撤回                   |
+| 工程验证结果                          | 项目工具与 CI                             | 每次变更重新产生                 | 实现质量权威     | 任何失败均不得以语义材料替代         |
 
 `.echo-semantic/` 是唯一项目目录；长期语义 Markdown 提交 Git，5 个运行态文件由 `.git/info/exclude` 排除。删除运行态文件最多要求重新预检、重新路由或丢失恢复提示。
 
@@ -177,7 +182,13 @@ echo-semantic/
 
 ```mermaid
 flowchart TD
-  Request[新需求] --> Classify[分类 bugfix / feature / refactor / contract / style]
+  Request[插件触发或用户需求] --> Scope{是否有明确任务?}
+  Scope -- 否 --> Maintenance[全仓语义维护]
+  Scope -- 是 --> Classify[分类 bugfix / feature / refactor / contract / style]
+  Maintenance --> DiscoverAll[semantic-discover 盘点已完成代码]
+  DiscoverAll --> StatusAll[semantic-status 汇总资产与缺口]
+  StatusAll --> AuditAll[semantic-audit 定向审查]
+  AuditAll --> VerifyAll[semantic-verify]
   Classify --> Baseline{存在有效 semantic 基线?}
   Baseline -- 否 --> Discover[semantic-discover]
   Discover --> BaselineReady[路径、边界与风险视角闭合]
@@ -208,7 +219,11 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-  Start[读取项目与宿主] --> HasBaseline{存在 .echo-semantic/baseline.md?}
+  Start[读取项目与宿主] --> Scope{存在明确任务?}
+  Scope -- 否 --> HasChanges{存在工作树变化?}
+  HasChanges -- 否 --> Maintenance[maintenance]
+  HasChanges -- 是 --> HasBaseline{存在 .echo-semantic/baseline.md?}
+  Scope -- 是 --> HasBaseline
   HasBaseline -- 否 --> Bootstrap[bootstrap]
   HasBaseline -- 是 --> HostReady{宿主已探测、Skill 可用且 Stop 有新鲜事件证据?}
   HostReady -- 否 --> Bootstrap
@@ -221,17 +236,19 @@ flowchart TD
   FastOnly -- 否 --> Standard[standard]
 ```
 
-| 路由        | 进入条件                                       | 推荐入口                                                | 必要收口                                           |
-| ----------- | ---------------------------------------------- | ------------------------------------------------------- | -------------------------------------------------- |
-| `bootstrap` | 无基线、宿主/关键能力不可用，或 Stop 无新鲜事件证据 | `semantic-discover` 或 `semantic-preflight`             | `semantic-verify`                                  |
-| `idle`      | 有基线且工作树无变化                           | `semantic-preflight`                                    | 新任务开始前重新记录预检                           |
-| `fast`      | 只有文档、配置、测试、示例等低风险路径         | `semantic-preflight`                                    | 工程验证和 `semantic-verify`                       |
-| `standard`  | 有变化但未命中高风险路径，且不全是快速路径     | `semantic-preflight`、`semantic-diff`                   | `semantic-verify`                                  |
-| `strict`    | 生产源码、未知源码、协议、迁移或治理控制面变化 | `semantic-preflight`、`semantic-diff`、`semantic-audit` | 高风险依据、设计权威、工程验证和 `semantic-verify` |
+| 路由          | 进入条件                                            | 推荐入口                                                 | 必要收口                                           |
+| ------------- | --------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------- |
+| `bootstrap`   | 无基线、宿主/关键能力不可用，或 Stop 无新鲜事件证据 | `semantic-discover` 或 `semantic-preflight`              | `semantic-verify`                                  |
+| `maintenance` | 没有明确任务且工作树没有新变化                      | `semantic-discover`、`semantic-status`、`semantic-audit` | `semantic-verify`                                  |
+| `idle`        | 有基线且工作树无变化                                | `semantic-preflight`                                     | 新任务开始前重新记录预检                           |
+| `fast`        | 只有文档、配置、测试、示例等低风险路径              | `semantic-preflight`                                     | 工程验证和 `semantic-verify`                       |
+| `standard`    | 有变化但未命中高风险路径，且不全是快速路径          | `semantic-preflight`、`semantic-diff`                    | `semantic-verify`                                  |
+| `strict`      | 生产源码、未知源码、协议、迁移或治理控制面变化      | `semantic-preflight`、`semantic-diff`、`semantic-audit`  | 高风险依据、设计权威、工程验证和 `semantic-verify` |
 
 静态能力矩阵只描述宿主声明能力，`runtimeProbe.detected` 也只描述安装存在。只有宿主真实触发的 Hook 才写入 `hookEvidence`；证据绑定
 宿主、宿主版本、插件版本和 24 小时时间窗。Stop 没有新鲜事件证据时路由必须进入 `bootstrap`，对应 `enforcement` 也不能置真。
-路由状态同时绑定计算时的 HEAD 和 Git porcelain 工作树摘要；任一变化都会使 `semantic-status` 将旧路由标为不可信。
+无明确任务且没有工作树变化时，`maintenance` 不依赖 Stop 事件证据，只提供仓库级语义入口；路由状态同时绑定计算时的 HEAD 和 Git porcelain 工作树摘要，
+任一变化都会使 `semantic-status` 将旧路由标为不可信。
 
 ## 状态流转
 
@@ -246,6 +263,7 @@ stateDiagram-v2
   state "行为模型闭合" as BehaviorClosed
 
   NoBaseline --> InventoryOpen: semantic-discover 建立基线
+  BehaviorClosed --> BehaviorClosed: 无明确任务执行仓库级语义维护
   InventoryOpen --> BehaviorOpen: 路径、边界和覆盖网格闭合
   BehaviorOpen --> BehaviorClosed: 关键场景、规则和证据闭合
   BehaviorClosed --> BehaviorOpen: 行为或证据需要复核
@@ -370,6 +388,8 @@ sequenceDiagram
   participant Authority as 项目 design / ADR
   participant Code as 代码与工程工具
   participant Diff as semantic-diff
+  participant Consolidate as semantic-consolidate
+  participant Repair as semantic-repair
   participant Audit as semantic-audit
   participant Verify as semantic-verify / CI
 
@@ -385,6 +405,10 @@ sequenceDiagram
   Agent->>Diff: 映射实际差异与影响闭包
   Diff-->>Audit: 高风险边界和故障假设
   Audit-->>Agent: Finding、残余风险或已检查范围
+  Agent->>Consolidate: 归并 Asset 候选并选择 canonical owner
+  Consolidate-->>Agent: 延后、迁移、合并或退役决策
+  Agent->>Repair: 绑定 repair、删除范围、回滚点和等价 Evidence
+  Repair-->>Code: 允许已批准的小切片
   Agent->>Verify: 快照、源码引用、路径分类和变更依据
   Verify-->>User: 允许交付或返回可定位阻断原因
 ```
@@ -431,28 +455,29 @@ sequenceDiagram
 1. 宿主事件是触发输入，不是项目事实；`hooks/entry.mjs` 只提取工作目录、事件来源、工具路径和任务标识。
 2. Git 提供仓库根、HEAD、分支、工作树差异和私有状态路径，是当前性与谱系依据。
 3. `.echo-semantic/` 提供长期行为事实；源码与 design/ADR 提供实现和期望依据。
-4. Skill 可以提出、归并和复核语义结论，但只有校验器能确定结构、引用、摘要和路径分类是否成立。
+4. Skill 可以提出、归并和复核语义结论，但只有校验器能确定结构、引用、摘要、路径分类、删除授权和等价 Evidence 是否成立。
 5. Hook 的成功只证明本地事件入口返回成功；CI 必须在独立环境重新读取最终差异。
 6. 真实宿主能力需要版本、配置、信任和生命周期事件证据；静态 manifest 不能单独证明 Hook 已运行。
 
 ## 异常与降级
 
-| 场景                                  | 行为                                      | 是否放宽门禁                 |
-| ------------------------------------- | ----------------------------------------- | ---------------------------- |
-| 当前目录不是 Git 仓库                 | Hook 返回空结果，不创建项目状态           | 不适用                       |
-| 项目没有 `.echo-semantic/baseline.md` | 路由为 `bootstrap`；Stop 不阻断未采用项目 | 不建立伪基线                 |
+| 场景                                             | 行为                                      | 是否放宽门禁                 |
+| ------------------------------------------------ | ----------------------------------------- | ---------------------------- |
+| 当前目录不是 Git 仓库                            | Hook 返回空结果，不创建项目状态           | 不适用                       |
+| 项目没有 `.echo-semantic/baseline.md`            | 路由为 `bootstrap`；Stop 不阻断未采用项目 | 不建立伪基线                 |
+| 没有明确任务且工作树无变化                       | 路由为 `maintenance`，执行全仓语义维护    | 不把结果写入任务预检         |
 | 宿主未探测到、关键能力未知或 Stop 无新鲜事件证据 | 路由为 `bootstrap`                        | 否，最终依赖显式 Skill 和 CI |
-| 预检缺失、过期、HEAD 不匹配           | 编辑前或 Stop 返回阻断原因                | 否                           |
-| 编辑路径超出 `allowedPaths`           | 支持 PreToolUse 的宿主立即阻断            | 否                           |
-| Codex 缺少稳定 PreToolUse             | 不做虚假即时阻断声明                      | 否，由 Stop 和 CI 收口       |
-| 继续包损坏、过期或证据变化            | 忽略恢复包并重新判断 Frontier             | 否                           |
-| `.echo-semantic/` 是符号链接          | 拒绝写入运行态                            | 否                           |
-| 运行态文件已被 Git 跟踪               | 拒绝覆盖并要求解除跟踪                    | 否                           |
-| `.git/info/exclude` 无法安全更新      | 拒绝创建运行态                            | 否                           |
-| 校验器或 `uv` 不可用                  | Stop 失败并保留预检                       | 否                           |
-| 语义摘要、源码引用或路径分类失效      | `semantic-verify` 和 CI 失败              | 否                           |
-| 一个宿主安装失败                      | 返回该宿主 `failed`，保留其它宿主结果     | 不影响其它渠道               |
-| Hook 未被宿主信任或未触发             | 不声称运行时已覆盖                        | 否，由 CI 提供最终信号       |
+| 预检缺失、过期、HEAD 不匹配                      | 编辑前或 Stop 返回阻断原因                | 否                           |
+| 编辑路径超出 `allowedPaths`                      | 支持 PreToolUse 的宿主立即阻断            | 否                           |
+| Codex 缺少稳定 PreToolUse                        | 不做虚假即时阻断声明                      | 否，由 Stop 和 CI 收口       |
+| 继续包损坏、过期或证据变化                       | 忽略恢复包并重新判断 Frontier             | 否                           |
+| `.echo-semantic/` 是符号链接                     | 拒绝写入运行态                            | 否                           |
+| 运行态文件已被 Git 跟踪                          | 拒绝覆盖并要求解除跟踪                    | 否                           |
+| `.git/info/exclude` 无法安全更新                 | 拒绝创建运行态                            | 否                           |
+| 校验器或 `uv` 不可用                             | Stop 失败并保留预检                       | 否                           |
+| 语义摘要、源码引用或路径分类失效                 | `semantic-verify` 和 CI 失败              | 否                           |
+| 一个宿主安装失败                                 | 返回该宿主 `failed`，保留其它宿主结果     | 不影响其它渠道               |
+| Hook 未被宿主信任或未触发                        | 不声称运行时已覆盖                        | 否，由 CI 提供最终信号       |
 
 ## 关键取舍
 
@@ -462,7 +487,7 @@ Skill 适合语义判断，Hook 适合生命周期接线，脚本和 CI 适合�
 
 ### 项目材料单一权威
 
-长期事实只进入采用方 `.echo-semantic/`，正式产品和架构选择只进入采用方 design/ADR。插件不维护第二份跨项目知识库。
+长期事实只进入采用方 `.echo-semantic/`，正式产品和架构选择只进入采用方 design/ADR。插件不维护第二份跨项目知识库；Asset、候选 Finding 和等价 Evidence 仍归入同一目录。
 
 ### 派生状态可丢弃
 
@@ -470,7 +495,7 @@ Skill 适合语义判断，Hook 适合生命周期接线，脚本和 CI 适合�
 
 ### 按风险控制深度
 
-所有任务都保留生成前和生成后收口，但只有高风险差异才要求定向 Audit 和正式设计依据，避免把轻量修改变成固定重流程。
+所有任务都保留生成前和生成后收口，但只有高风险差异才要求定向 Audit 和正式设计依据，避免把轻量修改变成固定重流程。没有明确任务时，`maintenance` 对 Baseline 覆盖代码做全仓语义维护；明确任务时只处理预检允许路径。
 
 ### 不引入常驻控制服务
 
@@ -482,7 +507,7 @@ Skill 适合语义判断，Hook 适合生命周期接线，脚本和 CI 适合�
 - 复用 Git 的 revision、branch、diff 和私有路径，不建设独立版本系统；
 - 复用采用方 formatter、Lint、类型、测试和 CI，不在语义 Skill 中模拟代码质量工具；
 - 复用正式 design/ADR，`semantic-decide` 不创建第二套架构仓库；
-- 三端适配器保持薄，只处理事件和路径映射；共享运行时不得复制三份实现；
+- 三端适配器保持薄，只处理事件和路径映射；共享运行时不得复制三份实现；现有 Codex、Cursor 的 Agent/manifest 投影保持兼容，新增能力不得改写其既有字段和事件合同；
 - 新增宿主能力前必须获得官方合同、当前 CLI 或真实加载证据，未知能力默认保守降级。
 
 ## 权限与敏感信息
@@ -496,13 +521,14 @@ Skill 适合语义判断，Hook 适合生命周期接线，脚本和 CI 适合�
 
 ## 验收标准
 
-1. README 能在不阅读源码的情况下说明定位、架构层次、主工作流、状态权威和文档入口；
+1. README 能在不阅读源码的情况下说明定位、架构层次、任务范围、主工作流、状态权威和文档入口；
 2. 正式设计包含架构图、任务流程图、路由图、状态图、生命周期时序图和安装时序图；
 3. 图中的组件、事件、状态文件、有效期和失败行为与当前实现一致；
 4. 三端 manifest 继续指向同一组 Skill、Agent 和 Hook 真理源；
 5. `npm run verify` 通过格式、静态合同、Node/Python 测试、校验器自测和严格快照；
 6. 高风险变更仍需执行 `--require-change-evidence`，文档不能成为绕过机器门禁的依据；
-7. Codex、Cursor、Claude Code 的真实生命周期验收与静态清单验证分开报告。
+7. Asset、候选、删除和等价 Evidence 具有可校验关系，未知动态路径不会自动放行删除；
+8. Codex、Cursor、Claude Code 的真实生命周期验收与静态清单验证分开报告，现有宿主和 Agent 适配行为保持兼容。
 
 ## 已知限制
 

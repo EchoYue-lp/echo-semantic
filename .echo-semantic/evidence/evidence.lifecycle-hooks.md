@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.lifecycle-hooks
 kind: evidence
-observed_at: source:0601ac04b1ed498782b4462cee66859c92500770eb0a401cf53e3072fdac7214
+observed_at: source:cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
 source_refs:
   - hooks/hooks.json#SessionStart
   - hooks/plugin-entry.mjs#function run

@@ -43,6 +43,9 @@ test("三个宿主清单共享插件名称和版本", () => {
     readJson(".agents/plugins/marketplace.json").interface.displayName,
     "Echo Semantic",
   );
+  const cursorManifest = readJson(".cursor-plugin/plugin.json");
+  assert.ok(cursorManifest.skills.includes("./skills/semantic-consolidate/"));
+  assert.ok(cursorManifest.skills.includes("./skills/semantic-repair/"));
 });
 
 test("Codex 清单保留可读中文而不是 Unicode 转义", () => {
@@ -60,6 +63,7 @@ test("Codex 与 Claude Code 共用原生 Hook，Cursor 保留专用事件名", (
   assert.ok(native.hooks.SessionStart);
   assert.ok(native.hooks.PreCompact);
   assert.ok(native.hooks.PreToolUse);
+  assert.match(native.hooks.PreToolUse[0].matcher, /Delete/);
   assert.ok(native.hooks.Stop);
   assert.ok(cursor.hooks.sessionStart);
   assert.ok(cursor.hooks.preCompact);

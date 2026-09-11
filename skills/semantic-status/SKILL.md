@@ -18,7 +18,7 @@ description: >-
 uv run scripts/status.py --root <项目绝对路径>
 ```
 
-3. 核对基线闭合、当前路由、预检新鲜度、继续包可信度、开放 Finding、失效 Audit 和未决对象。
+3. 核对基线闭合、当前路由、任务范围、预检新鲜度、继续包可信度、资产与候选数量、开放 Finding、失效 Audit 和未决对象。
 4. 返回当前状态、阻断原因和唯一下一入口。
 
 ## 路由
@@ -27,6 +27,7 @@ uv run scripts/status.py --root <项目绝对路径>
 - 库存未闭合：继续 `semantic-discover`；
 - 只有文档、配置或测试变化：采用 `fast` 路由，执行预检和工程验证；
 - 有代码差异但无预检：进入 `semantic-preflight`；
+- 没有明确任务且没有工作树变化：进入 `maintenance`，执行全仓 `semantic-discover`、`semantic-status`、`semantic-audit` 和 `semantic-verify`；
 - 严格路由：依次进入 `semantic-diff`、必要的 `semantic-audit` 和 `semantic-verify`；
 - 开放 Finding 或 stale Audit：进入定向 `semantic-audit`；
 - 只缺确定性证据：进入 `semantic-verify`。

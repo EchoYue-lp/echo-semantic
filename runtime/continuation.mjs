@@ -20,7 +20,14 @@ const PLUGIN_ID = "echo-semantic";
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_PACKET_BYTES = 32 * 1024;
 const TASK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-const ROUTES = new Set(["bootstrap", "fast", "standard", "strict", "idle"]);
+const ROUTES = new Set([
+  "bootstrap",
+  "maintenance",
+  "fast",
+  "standard",
+  "strict",
+  "idle",
+]);
 const FIELDS = new Set([
   "schemaVersion",
   "pluginId",

@@ -37,6 +37,7 @@ SEMANTIC_OBJECT_DIRECTORIES = (
     "findings",
     "audits",
     "discovery",
+    "assets",
 )
 
 
@@ -60,6 +61,43 @@ def semantic_object_ids(root: Path) -> set[str]:
             if identifier is not None:
                 objects.add(identifier.group(1))
     return objects
+
+
+def semantic_object_metadata(root: Path, identifier: str) -> dict[str, str] | None:
+    semantic_root = root / ".echo-semantic"
+    for directory in SEMANTIC_OBJECT_DIRECTORIES:
+        for path in (semantic_root / directory).glob("*.md"):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                continue
+            frontmatter = re.match(r"^---\s*\n(.*?)\n---\s*\n", text, re.DOTALL)
+            if frontmatter is None:
+                continue
+            if not re.search(
+                rf"^id:\s*['\"]?{re.escape(identifier)}['\"]?\s*$",
+                frontmatter.group(1),
+                re.MULTILINE,
+            ):
+                continue
+            return {
+                "frontmatter": frontmatter.group(1),
+                "kind": re.search(
+                    r"^kind:\s*([^\s]+)\s*$", frontmatter.group(1), re.MULTILINE
+                ).group(1)
+                if re.search(
+                    r"^kind:\s*([^\s]+)\s*$", frontmatter.group(1), re.MULTILINE
+                )
+                else "",
+                "status": re.search(
+                    r"^status:\s*([^\s]+)\s*$", frontmatter.group(1), re.MULTILINE
+                ).group(1)
+                if re.search(
+                    r"^status:\s*([^\s]+)\s*$", frontmatter.group(1), re.MULTILINE
+                )
+                else "",
+            }
+    return None
 
 
 def _string_list(
@@ -90,6 +128,8 @@ def validate_preflight(
         errors.append("schemaVersion 必须是 1")
     if value.get("pluginId") != PLUGIN_ID:
         errors.append("pluginId 无效")
+    if value.get("scope") != "task":
+        errors.append("scope 必须是 task")
     if value.get("repositoryRoot") != str(root.resolve()):
         errors.append("repositoryRoot 与当前仓库不匹配")
 
@@ -125,6 +165,50 @@ def validate_preflight(
     for reference in semantic_refs:
         if reference not in known_objects:
             errors.append(f"semanticRefs 引用不存在语义对象：{reference}")
+
+    repair_refs = value.get("repairRefs", [])
+    if not isinstance(repair_refs, list) or any(
+        not isinstance(item, str) or not item.strip() for item in repair_refs
+    ):
+        errors.append("repairRefs 必须是字符串列表")
+    else:
+        for reference in repair_refs:
+            if reference not in known_objects:
+                errors.append(f"repairRefs 引用不存在语义对象：{reference}")
+            elif (
+                (metadata := semantic_object_metadata(root, reference)) is None
+                or metadata.get("kind") != "finding"
+                or metadata.get("status") != "resolved"
+            ):
+                errors.append(f"repairRefs 必须引用已完成的 Finding：{reference}")
+    delete_paths = value.get("deletePaths", [])
+    if not isinstance(delete_paths, list) or any(
+        not isinstance(item, str) or not item.strip() for item in delete_paths
+    ):
+        errors.append("deletePaths 必须是字符串列表")
+    else:
+        for raw in delete_paths:
+            normalized = PurePosixPath(raw)
+            if normalized.is_absolute() or ".." in normalized.parts or raw in {"", "."}:
+                errors.append(f"deletePaths 包含无效路径：{raw}")
+        if delete_paths and value.get("risk") != "high":
+            errors.append("删除变化的 risk 必须是 high")
+    if delete_paths and isinstance(repair_refs, list):
+        for reference in repair_refs:
+            metadata = semantic_object_metadata(root, reference)
+            if metadata is None or metadata.get("kind") != "finding":
+                continue
+            frontmatter = metadata.get("frontmatter", "")
+            for field in (
+                "type",
+                "decision",
+                "canonical_asset_ref",
+                "delete_paths",
+                "replacement_refs",
+                "rollback_ref",
+            ):
+                if not re.search(rf"^{field}:\s*", frontmatter, re.MULTILINE):
+                    errors.append(f"repair Finding 缺少 {field}：{reference}")
 
     boundary = value.get("boundaryDecision")
     if (

@@ -1,7 +1,7 @@
 # Echo Semantic
 
-`echo-semantic` 是面向 Coding Agent 的项目无关语义治理插件。它把生成前预检、语义基线、
-增量影响分析、定向审查和确定性验证组合成一条可按风险升级的开发链路，并适配 Codex、Cursor 和 Claude Code。
+`echo-semantic` 是面向 Coding Agent 的项目无关语义治理插件。它把仓库级语义维护、生成前预检、语义基线、
+资产盘点、候选归并、增量影响分析、受控修复、定向审查和确定性验证组合成一条可按风险升级的开发链路，并适配 Codex、Cursor 和 Claude Code。
 
 插件不替代 formatter、Lint、类型检查、单元测试、契约测试或集成测试。Skill 负责需要判断的工作，Hook 负责
 生命周期接线，校验器和 CI 负责确定性阻断。
@@ -13,6 +13,7 @@
 
 - **生成前失控**：写代码前先查已有 Capability、Rule、API、实现和测试，明确允许路径与验证要求；
 - **重复实现**：新增能力必须说明复用关系，不能复用时必须给出边界理由；
+- **老项目收敛**：盘点文件、符号、入口、状态权威和协议，形成候选归并与删除证据；
 - **架构漂移**：公共 API、协议、状态权威和跨服务迁移必须绑定正式 design/ADR；
 - **事后审查过晚**：首个差异形成后追踪影响闭包，高风险边界进入定向审查；
 - **模型提示约束弱**：Hook 接入编辑、压缩和停止生命周期，CI 对最终 Git 差异重新验证；
@@ -40,7 +41,7 @@ node bin/install.mjs install all
 因此插件把约束拆成四层：
 
 - `semantic-preflight` 记录任务级复用、边界、风险、允许路径和验证要求；编辑前 Hook 以它为准阻断越界路径。
-- `runtime/route.mjs` 按宿主能力和 Git 差异选择 `bootstrap`、`fast`、`standard`、`strict` 或 `idle`，不要求每个任务都走同样深度。
+- `runtime/route.mjs` 按宿主能力、任务范围和 Git 差异选择 `bootstrap`、`maintenance`、`fast`、`standard`、`strict` 或 `idle`，不要求每个任务都走同样深度。
 - PreCompact 保存带仓库、分支和证据摘要的短期任务继续包；resume 只恢复仍可信的包，失效时降级而不放宽门禁。
 - Stop 和 GitHub Action 重新运行确定性校验器；高风险路径必须有同次语义对象和 design/ADR 依据，最终结果不依赖模型是否“记得”执行 Skill。
 
@@ -67,7 +68,7 @@ flowchart LR
 
 1. **宿主适配层**：三端 manifest、事件名称、输入输出和安装投影；
 2. **共享控制面**：宿主能力探测、风险路由、预检状态、继续包和状态视图；
-3. **语义判断层**：八个 Skill 与三个只读 Agent；
+3. **语义判断层**：十个 Skill 与三个只读 Agent；
 4. **确定性门禁层**：语义校验器、GitHub Action 和项目原有工程工具。
 
 详细组件、边界、状态图和时序图见 [项目架构与状态流转设计](docs/supreme/specs/plugin-architecture/design.md)。
@@ -76,8 +77,15 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-  Request[新需求] --> Classify[bugfix / feature / refactor / contract / style]
+  Request[新需求或插件单独触发] --> Scope{是否有明确任务?}
+  Scope -- 否 --> Maintenance[仓库语义维护]
+  Scope -- 是 --> Classify[bugfix / feature / refactor / contract / style]
   Classify --> Preflight[semantic-preflight]
+  Maintenance --> DiscoverAll[semantic-discover 全仓盘点]
+  DiscoverAll --> StatusAll[semantic-status 汇总 Frontier]
+  StatusAll --> ConsolidateAll[semantic-consolidate 形成候选]
+  ConsolidateAll --> AuditAll[semantic-audit 全部已建边界]
+  AuditAll --> VerifyAll[semantic-verify]
   Preflight --> DesignGate{架构或公共契约变化?}
   DesignGate -- 是 --> Authority[更新正式 design / ADR]
   DesignGate -- 否 --> Coding[AI 编码]
@@ -109,27 +117,29 @@ flowchart TD
 
 ## 能力
 
-| 入口                 | 用途                                                             |
-| -------------------- | ---------------------------------------------------------------- |
-| `semantic-preflight` | 写代码前完成复用、边界、允许路径、设计权威和验证矩阵预检         |
-| `semantic-status`    | 汇总基线、路由、预检、开放 Finding、失效 Audit 和下一步 Frontier |
-| `semantic-discover`  | 建立或修复项目自己的 `.echo-semantic/` 基线                      |
-| `semantic-diff`      | 将代码差异映射到能力、规则、失效审查和验证范围                   |
-| `semantic-audit`     | 对高风险边界执行有界、可反证的只读审查                           |
-| `semantic-decide`    | 只处理无法由证据决定的产品预期和风险接受                         |
-| `semantic-verify`    | 校验语义材料、变更依据和工程验证证据                             |
-| `semantic-contract`  | 为其它语义 Skill 提供唯一对象合同和确定性校验器                  |
+| 入口                   | 用途                                                             |
+| ---------------------- | ---------------------------------------------------------------- |
+| `semantic-preflight`   | 写代码前完成复用、边界、允许路径、设计权威和验证矩阵预检         |
+| `semantic-status`      | 汇总基线、路由、预检、开放 Finding、失效 Audit 和下一步 Frontier |
+| `semantic-discover`    | 建立基线并盘点文件、符号、入口、状态、协议、测试消费者和未知区   |
+| `semantic-diff`        | 将代码差异映射到能力、规则、失效审查和验证范围                   |
+| `semantic-audit`       | 对高风险边界执行有界、可反证的只读审查                           |
+| `semantic-consolidate` | 将资产候选归并为 canonical owner 决策，不自动合并或删除          |
+| `semantic-repair`      | 将已批准的替换、重构和删除绑定到预检、Hook、Stop 和 CI           |
+| `semantic-decide`      | 只处理无法由证据决定的产品预期和风险接受                         |
+| `semantic-verify`      | 校验语义材料、变更依据和工程验证证据                             |
+| `semantic-contract`    | 为其它语义 Skill 提供唯一对象合同和确定性校验器                  |
 
 三个只读 Agent 分别负责边界发现、能力闭合复核和风险审查。宿主不能发现专用 Agent 时，Skill 会降级为宿主已有的
 只读探索或审查能力，不改变长期材料的唯一写入者。
 
 ## 宿主支持
 
-| 宿主        | Skill    | Agent     | 编辑前检查     | PreCompact | Stop | 安装方式        |
-| ----------- | -------- | --------- | -------------- | ---------- | ---- | --------------- |
-| Codex       | manifest | TOML 投影 | 当前未稳定覆盖 | 降级支持   | 支持 | CLI + 原生 Hook |
+| 宿主        | Skill    | Agent     | 编辑前检查     | PreCompact | Stop     | 安装方式        |
+| ----------- | -------- | --------- | -------------- | ---------- | -------- | --------------- |
+| Codex       | manifest | TOML 投影 | 当前未稳定覆盖 | 降级支持   | 支持     | CLI + 原生 Hook |
 | Cursor      | manifest | 原生目录  | `preToolUse`   | 降级支持   | followup | 本地实目录镜像  |
-| Claude Code | manifest | 原生插件  | `PreToolUse`   | 支持       | 支持 | Marketplace CLI |
+| Claude Code | manifest | 原生插件  | `PreToolUse`   | 支持       | 支持     | Marketplace CLI |
 
 “支持”表示已有适配和静态合同，不自动证明当前宿主版本、配置和信任状态下真实事件已经触发。详见 [宿主支持](docs/host-support.md)。
 
@@ -175,15 +185,16 @@ Codex 与 Claude Code 从插件约定路径 `hooks/hooks.json` 发现同一组�
 
 ## 项目采用
 
-1. 调用 `semantic-discover`，在目标仓库建立 `.echo-semantic/`。
-2. 每个代码任务在生成前调用 `semantic-preflight`。
+1. 只触发插件且没有明确任务时，对已完成代码执行 `semantic-discover`、`semantic-audit` 和 `semantic-verify`。
+2. 有明确任务时只对该任务允许路径调用 `semantic-preflight`。
 3. 代码形成首个差异后调用 `semantic-diff`，高风险时进入 `semantic-audit`。
-4. 上下文压缩前由 Hook 保存继续包，恢复时由 Hook 校验证据并重新注入 Frontier。
-5. 提交前调用 `semantic-verify`，并运行项目原有工程门禁。
+4. 候选归并使用 `semantic-consolidate`；删除或替换使用 `semantic-repair` 并提供行为等价 Evidence。
+5. 上下文压缩前由 Hook 保存继续包，恢复时由 Hook 校验证据并重新注入 Frontier。
+6. 提交前调用 `semantic-verify`，并运行项目原有工程门禁。
 
 生成前预检状态写入同一个 `.echo-semantic/`，由 `.git/info/exclude` 只排除运行态文件；长期语义材料继续提交版本控制。
 
-会话开始时插件运行 `runtime/route.mjs`，先区分安装探测与真实 Hook 事件证据，再按当前项目和已验证宿主能力选择 `bootstrap`、`fast`、`standard`、`strict` 或 `idle` 路由；Stop 尚无新鲜事件证据时保持 `bootstrap`；
+会话开始时插件运行 `runtime/route.mjs`，先区分安装探测与真实 Hook 事件证据，再按当前项目、任务范围和已验证宿主能力选择 `bootstrap`、`maintenance`、`fast`、`standard`、`strict` 或 `idle` 路由；Stop 尚无新鲜事件证据时保持 `bootstrap`；
 需要查看完整状态时调用 `semantic-status`：
 
 ```bash

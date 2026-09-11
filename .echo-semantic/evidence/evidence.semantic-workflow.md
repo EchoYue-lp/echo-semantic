@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.semantic-workflow
 kind: evidence
-observed_at: source:0601ac04b1ed498782b4462cee66859c92500770eb0a401cf53e3072fdac7214
+observed_at: source:cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
 source_refs:
   - skills/semantic-contract/SKILL.md#语义材料合同
   - skills/semantic-contract/references/semantic-artifact-contract.md#语义材料合同
@@ -28,7 +28,7 @@ limitations:
 
 ## 支持的结论
 
-八个入口职责分离，生成前预检、状态 Frontier、发现、差异、审查、裁决和验证围绕同一对象合同协作；预检、Hook、状态视图和 CI
+十个入口职责分离，生成前预检、状态 Frontier、发现、资产盘点、差异、候选归并、受控修复、审查、裁决和验证围绕同一对象合同协作；预检、Hook、状态视图和 CI
 共享对象存在性与正式 design/ADR 摘要合同，压缩恢复只携带短期任务线索。
 
 ## 来源与范围

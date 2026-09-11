@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Iterable
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -45,6 +46,7 @@ KIND_BY_DIRECTORY = {
     "findings": "finding",
     "audits": "audit",
     "discovery": "discovery",
+    "assets": "asset",
 }
 REQUIRED_DIRECTORIES = tuple(KIND_BY_DIRECTORY)
 RISK_VALUES = {"low", "medium", "high"}
@@ -246,6 +248,20 @@ REQUIRED_FIELDS = {
         "candidate_refs",
         "unresolved",
     },
+    "asset": {
+        "title",
+        "asset_type",
+        "status",
+        "risk",
+        "observed_at",
+        "boundary_refs",
+        "code_refs",
+        "consumer_refs",
+        "behavior_refs",
+        "rule_refs",
+        "evidence_refs",
+        "finding_refs",
+    },
 }
 REQUIRED_HEADINGS = {
     "baseline": {
@@ -296,6 +312,7 @@ REQUIRED_HEADINGS = {
         "未检查项",
     },
     "discovery": {"扫描范围", "候选事实", "归并结果", "未决项"},
+    "asset": {"资产身份", "来源与消费者", "生命周期", "候选关系", "未知与限制"},
 }
 SEMANTIC_REF_TYPES = {
     "map_refs": "capability_map",
@@ -308,6 +325,9 @@ SEMANTIC_REF_TYPES = {
     "finding_refs": "finding",
     "audit_refs": "audit",
     "rereview_audit_refs": "audit",
+    "asset_refs": "asset",
+    "candidate_asset_refs": "asset",
+    "replacement_refs": "asset",
 }
 
 
@@ -659,6 +679,46 @@ def validate_behavior_rule(
         require_string_list(data, field, path, errors)
 
 
+def validate_asset(data: dict[str, Any], path: Path, errors: list[str]) -> None:
+    if data.get("asset_type") not in {
+        "file",
+        "symbol",
+        "entrypoint",
+        "state_authority",
+        "protocol",
+        "test_consumer",
+        "document",
+    }:
+        add_error(errors, path, "asset_type 无效")
+    if data.get("status") not in {
+        "active",
+        "candidate",
+        "orphan",
+        "deprecated",
+        "needs_review",
+    }:
+        add_error(errors, path, "asset status 无效")
+    if data.get("risk") not in RISK_VALUES:
+        add_error(errors, path, "asset risk 无效")
+    if not source_revision_valid(data.get("observed_at")):
+        add_error(errors, path, "asset observed_at 不是有效源码版本")
+    for field in (
+        "boundary_refs",
+        "code_refs",
+        "consumer_refs",
+        "behavior_refs",
+        "rule_refs",
+        "evidence_refs",
+        "finding_refs",
+    ):
+        require_string_list(data, field, path, errors)
+    candidate_refs = data.get("candidate_refs", [])
+    if not isinstance(candidate_refs, list) or any(
+        not isinstance(item, str) or not item.strip() for item in candidate_refs
+    ):
+        add_error(errors, path, "asset candidate_refs 必须是字符串列表")
+
+
 def validate_special(
     data: dict[str, Any], kind: str, path: Path, errors: list[str]
 ) -> None:
@@ -669,12 +729,61 @@ def validate_special(
             add_error(errors, path, "Evidence 必须有 source_refs")
         require_string_list(data, "supports", path, errors)
         require_string_list(data, "limitations", path, errors)
+        if data.get("evidence_type") is not None:
+            if data.get("evidence_type") != "behavior_equivalence":
+                add_error(errors, path, "evidence_type 无效")
+            for field in ("before_revision", "after_revision"):
+                if not source_revision_valid(data.get(field)):
+                    add_error(errors, path, f"{field} 不是有效源码版本")
+            scenarios = data.get("scenario_results")
+            if not isinstance(scenarios, dict) or not scenarios:
+                add_error(errors, path, "行为等价 Evidence 必须包含 scenario_results")
+            else:
+                for name, result in scenarios.items():
+                    if not isinstance(result, dict):
+                        add_error(errors, path, f"行为场景 {name} 必须是对象")
+                        continue
+                    if result.get("status") not in {"matched", "failed", "unknown"}:
+                        add_error(errors, path, f"行为场景 {name} status 无效")
+                    if (
+                        not isinstance(result.get("source_refs"), list)
+                        or not result["source_refs"]
+                    ):
+                        add_error(errors, path, f"行为场景 {name} 缺少 source_refs")
+            commands = data.get("command_results")
+            if not isinstance(commands, list) or not commands:
+                add_error(errors, path, "行为等价 Evidence 必须包含 command_results")
+            else:
+                for index, command in enumerate(commands):
+                    if not isinstance(command, dict):
+                        add_error(errors, path, f"等价命令 {index} 必须是对象")
+                        continue
+                    if (
+                        not isinstance(command.get("command"), str)
+                        or not command["command"].strip()
+                    ):
+                        add_error(errors, path, f"等价命令 {index} 缺少 command")
+                    if command.get("exit_code") != 0:
+                        add_error(errors, path, f"等价命令 {index} 未成功")
+            coverage = data.get("coverage")
+            if not isinstance(coverage, list) or not coverage:
+                add_error(errors, path, "行为等价 Evidence 必须包含 coverage")
+            deleted_paths = data.get("deleted_paths", [])
+            if not isinstance(deleted_paths, list) or any(
+                not isinstance(item, str) or not item.strip() for item in deleted_paths
+            ):
+                add_error(
+                    errors,
+                    path,
+                    "行为等价 Evidence 的 deleted_paths 必须是字符串列表",
+                )
     elif kind == "finding":
         if data.get("type") not in {
             "implementation_bug",
             "intent_gap",
             "evidence_gap",
             "authority_conflict",
+            "consolidation_candidate",
         }:
             add_error(errors, path, "Finding type 无效")
         if data.get("status") not in {
@@ -703,6 +812,8 @@ def validate_special(
             "rereview_audit_refs",
         ):
             require_string_list(data, field, path, errors)
+        if "replacement_refs" in data:
+            require_string_list(data, "replacement_refs", path, errors)
         if data.get("status") == "resolved" and not all(
             data.get(field)
             for field in (
@@ -714,6 +825,24 @@ def validate_special(
             add_error(errors, path, "resolved 必须有修复、验证和复审证据")
         if data.get("status") == "risk_accepted" and not data.get("decision_refs"):
             add_error(errors, path, "risk_accepted 必须有人的裁决引用")
+        if data.get("type") == "consolidation_candidate":
+            candidates = data.get("candidate_asset_refs")
+            if not isinstance(candidates, list) or len(candidates) < 2:
+                add_error(errors, path, "归并候选至少需要两个 candidate_asset_refs")
+            if data.get("decision") not in {
+                "keep",
+                "merge",
+                "migrate",
+                "retire",
+                "defer",
+            }:
+                add_error(errors, path, "归并候选 decision 无效")
+            if data.get("decision") in {
+                "merge",
+                "migrate",
+                "retire",
+            } and not isinstance(data.get("canonical_asset_ref"), str):
+                add_error(errors, path, "归并候选缺少 canonical_asset_ref")
     elif kind == "audit":
         if data.get("lens") not in LENS_VALUES or data.get("freshness") not in {
             "examined",
@@ -816,10 +945,29 @@ def validate_relations(
                 "behavior_refs", []
             ):
                 add_error(errors, path, "Behavior 未被边界所属 Capability Map 引用")
+        elif kind == "asset":
+            for boundary in data.get("boundary_refs", []):
+                if boundary not in boundary_to_map:
+                    add_error(errors, path, f"asset 引用未知边界：{boundary}")
+            for reference in data.get("candidate_refs", []):
+                target = objects.get(reference)
+                if target is None or target[0] != "asset":
+                    add_error(
+                        errors, path, f"asset candidate_refs 引用无效：{reference}"
+                    )
+            if data.get("status") == "candidate" and not data.get("candidate_refs"):
+                add_error(errors, path, "candidate asset 必须包含 candidate_refs")
         elif kind == "finding":
             boundary = data.get("boundary_ref")
             if boundary not in boundary_to_map:
                 add_error(errors, path, f"Finding 引用未知边界：{boundary}")
+            canonical = data.get("canonical_asset_ref")
+            if canonical is not None:
+                target = objects.get(canonical)
+                if target is None or target[0] != "asset":
+                    add_error(
+                        errors, path, f"canonical_asset_ref 引用无效：{canonical}"
+                    )
         elif kind == "audit":
             boundary = data.get("boundary_ref")
             if boundary not in boundary_to_map:
@@ -858,6 +1006,8 @@ def validate_source_refs(
             work.append((path, str(revision), data.get("code_refs", [])))
         elif kind == "evidence":
             work.append((path, str(revision), data.get("source_refs", [])))
+        elif kind == "asset":
+            work.append((path, str(revision), data.get("code_refs", [])))
         elif kind == "capability_map":
             scenarios = data.get("scenarios", {})
             if isinstance(scenarios, dict):
@@ -1021,7 +1171,7 @@ def load_preflight(root: Path) -> dict[str, Any] | None:
 
 
 def changed_paths(root: Path, base: str) -> list[str]:
-    output = run_git(root, "diff", "--name-only", "--diff-filter=ACMRT", base, "--")
+    output = run_git(root, "diff", "--name-only", "--diff-filter=ACDMRT", base, "--")
     tracked = str(output).splitlines()
     untracked_output = run_git(root, "ls-files", "--others", "--exclude-standard")
     return sorted({*tracked, *str(untracked_output).splitlines()})
@@ -1168,6 +1318,8 @@ def validate_change_evidence(
     inferred, high_paths = infer_signals(
         root, base, code_paths, in_scope_code_paths(objects, code_paths)
     )
+    deleted_paths = [path for path in code_paths if not (root / path).exists()]
+    high_paths.update(deleted_paths)
     declared: dict[str, Any] = {}
     if preflight is not None:
         for issue in validate_preflight(preflight, root, expected_base=base):
@@ -1197,7 +1349,16 @@ def validate_change_evidence(
         for path in semantic_paths
         if any(
             path.startswith(f"{SEMANTIC_DIRECTORY}/{directory}/")
-            for directory in ("maps", "behaviors", "rules", "evidence", "audits")
+            for directory in (
+                "maps",
+                "behaviors",
+                "rules",
+                "evidence",
+                "findings",
+                "audits",
+                "discovery",
+                "assets",
+            )
         )
     ]
     if not evidence_paths:
@@ -1211,6 +1372,234 @@ def validate_change_evidence(
     for relative in sorted(high_paths):
         if relative not in evidence_text:
             add_error(errors, semantic_root, f"高风险路径没有同次语义依据：{relative}")
+
+    if deleted_paths:
+        if preflight is None:
+            add_error(errors, semantic_root, "删除变化缺少 semantic-preflight")
+        else:
+            if preflight.get("risk") != "high":
+                add_error(errors, semantic_root, "删除变化的 risk 必须是 high")
+            repair_refs = preflight.get("repairRefs", [])
+            delete_paths = preflight.get("deletePaths", [])
+            if not isinstance(repair_refs, list) or not repair_refs:
+                add_error(errors, semantic_root, "删除变化缺少 repairRefs")
+            if not isinstance(delete_paths, list) or not delete_paths:
+                add_error(errors, semantic_root, "删除变化缺少 deletePaths")
+            else:
+                for deleted in deleted_paths:
+                    if deleted not in delete_paths:
+                        add_error(errors, semantic_root, f"删除路径未获授权：{deleted}")
+            for reference in repair_refs if isinstance(repair_refs, list) else []:
+                target = objects.get(reference)
+                if target is None or target[0] != "finding":
+                    add_error(
+                        errors, semantic_root, f"repairRefs 引用无效：{reference}"
+                    )
+                elif target[1].get("status") != "resolved":
+                    add_error(errors, semantic_root, f"repairRefs 未完成：{reference}")
+                else:
+                    finding = target[1]
+                    if finding.get("type") != "consolidation_candidate":
+                        add_error(
+                            errors,
+                            semantic_root,
+                            f"repair Finding 必须是 consolidation_candidate：{reference}",
+                        )
+                    if finding.get("decision") not in {"merge", "migrate", "retire"}:
+                        add_error(
+                            errors,
+                            semantic_root,
+                            f"repair Finding 缺少已批准归并决策：{reference}",
+                        )
+                    replacement_refs = finding.get("replacement_refs", [])
+                    canonical = finding.get("canonical_asset_ref")
+                    candidates = finding.get("candidate_asset_refs", [])
+                    finding_delete_paths = finding.get("delete_paths", [])
+                    if (
+                        not isinstance(finding_delete_paths, list)
+                        or not finding_delete_paths
+                    ):
+                        add_error(
+                            errors,
+                            semantic_root,
+                            f"repair Finding 缺少 delete_paths：{reference}",
+                        )
+                    else:
+                        if (
+                            not isinstance(candidates, list)
+                            or canonical not in candidates
+                        ):
+                            add_error(
+                                errors,
+                                semantic_root,
+                                f"repair Finding 的 canonical asset 不属于 candidate_asset_refs：{reference}",
+                            )
+                        if isinstance(candidates, list):
+                            for asset_ref in candidates:
+                                asset_target = objects.get(asset_ref)
+                                if asset_target is None or asset_target[0] != "asset":
+                                    add_error(
+                                        errors,
+                                        semantic_root,
+                                        f"repair Finding 的 candidate asset 引用无效：{reference} -> {asset_ref}",
+                                    )
+                        canonical_target = (
+                            objects.get(canonical)
+                            if isinstance(canonical, str)
+                            else None
+                        )
+                        if canonical_target is None or canonical_target[0] != "asset":
+                            add_error(
+                                errors,
+                                semantic_root,
+                                f"repair Finding 的 canonical asset 引用无效：{reference} -> {canonical}",
+                            )
+                        else:
+                            canonical_refs = canonical_target[1].get("code_refs", [])
+                            if any(
+                                allowed_path(deleted, [str(code_ref).split("#", 1)[0]])
+                                for deleted in deleted_paths
+                                for code_ref in (
+                                    canonical_refs
+                                    if isinstance(canonical_refs, list)
+                                    else []
+                                )
+                            ):
+                                add_error(
+                                    errors,
+                                    semantic_root,
+                                    f"repair Finding 的 canonical asset 也在删除范围：{reference}",
+                                )
+                        for deleted in deleted_paths:
+                            if not allowed_path(deleted, finding_delete_paths):
+                                add_error(
+                                    errors,
+                                    semantic_root,
+                                    f"repair Finding 未声明删除路径：{reference} -> {deleted}",
+                                )
+                    if not isinstance(replacement_refs, list) or not replacement_refs:
+                        add_error(
+                            errors,
+                            semantic_root,
+                            f"repair Finding 缺少 replacement_refs：{reference}",
+                        )
+                    if (
+                        not isinstance(canonical, str)
+                        or not isinstance(replacement_refs, list)
+                        or canonical not in replacement_refs
+                    ):
+                        add_error(
+                            errors,
+                            semantic_root,
+                            f"repair Finding 的 replacement_refs 未包含 canonical asset：{reference}",
+                        )
+                    if not isinstance(candidates, list) or len(candidates) < 2:
+                        add_error(
+                            errors,
+                            semantic_root,
+                            f"repair Finding 缺少 candidate_asset_refs：{reference}",
+                        )
+                    else:
+                        for deleted in deleted_paths:
+                            if not any(
+                                (asset_target := objects.get(asset_ref)) is not None
+                                and asset_target[0] == "asset"
+                                and any(
+                                    allowed_path(
+                                        deleted, [str(code_ref).split("#", 1)[0]]
+                                    )
+                                    for code_ref in asset_target[1].get("code_refs", [])
+                                )
+                                for asset_ref in candidates
+                            ):
+                                add_error(
+                                    errors,
+                                    semantic_root,
+                                    f"repair Finding 的 candidate_assets 未覆盖删除路径：{reference} -> {deleted}",
+                                )
+                    if (
+                        not isinstance(finding.get("rollback_ref"), str)
+                        or not finding.get("rollback_ref", "").strip()
+                    ):
+                        add_error(
+                            errors,
+                            semantic_root,
+                            f"repair Finding 缺少 rollback_ref：{reference}",
+                        )
+                    evidence_refs = finding.get("verification_evidence_refs", [])
+                    if not isinstance(evidence_refs, list) or not evidence_refs:
+                        add_error(
+                            errors,
+                            semantic_root,
+                            f"repair Finding 缺少等价验证引用：{reference}",
+                        )
+                    for evidence_ref in (
+                        evidence_refs if isinstance(evidence_refs, list) else []
+                    ):
+                        evidence_target = objects.get(evidence_ref)
+                        if (
+                            evidence_target is None
+                            or evidence_target[0] != "evidence"
+                            or evidence_target[1].get("evidence_type")
+                            != "behavior_equivalence"
+                        ):
+                            add_error(
+                                errors,
+                                semantic_root,
+                                f"repair Finding 的 behavior_equivalence 等价验证引用无效：{evidence_ref}",
+                            )
+                        else:
+                            evidence = evidence_target[1]
+                            if evidence.get("before_revision") != base:
+                                add_error(
+                                    errors,
+                                    semantic_root,
+                                    f"等价 Evidence 的 before_revision 未绑定删除基准：{evidence_ref}",
+                                )
+                            current_revision = f"source:{source_digest(root)}"
+                            if evidence.get("after_revision") != current_revision:
+                                add_error(
+                                    errors,
+                                    semantic_root,
+                                    f"等价 Evidence 的 after_revision 未绑定当前源码：{evidence_ref}",
+                                )
+                            declared_deleted = evidence.get("deleted_paths", [])
+                            if not isinstance(declared_deleted, list) or any(
+                                not allowed_path(deleted, declared_deleted)
+                                for deleted in deleted_paths
+                            ):
+                                add_error(
+                                    errors,
+                                    semantic_root,
+                                    f"等价 Evidence 未覆盖全部删除路径：{evidence_ref}",
+                                )
+                            scenarios = evidence.get("scenario_results", {})
+                            if any(
+                                not isinstance(result, dict)
+                                or result.get("status") != "matched"
+                                for result in scenarios.values()
+                            ):
+                                add_error(
+                                    errors,
+                                    semantic_root,
+                                    f"行为等价 Evidence 存在未匹配场景：{evidence_ref}",
+                                )
+
+        unresolved: list[str] = []
+        for kind, data, path in objects.values():
+            if kind == "discovery":
+                values = data.get("unresolved", [])
+                if isinstance(values, list):
+                    unresolved.extend(str(value) for value in values)
+            elif kind == "asset" and data.get("status") == "needs_review":
+                unresolved.extend(str(ref) for ref in data.get("code_refs", []))
+        if unresolved:
+            add_error(
+                errors,
+                semantic_root,
+                "删除变化存在未闭合动态或 needs_review 资产："
+                + ", ".join(sorted(set(unresolved))),
+            )
 
     architectural = any(
         inferred.get(name) or declared.get(name)
@@ -1282,6 +1671,8 @@ def validate_repository(
             validate_map(data, path, errors)
         elif kind in {"behavior", "rule"}:
             validate_behavior_rule(data, kind, path, errors)
+        elif kind == "asset":
+            validate_asset(data, path, errors)
         else:
             validate_special(data, kind, path, errors)
     objects = validate_relations(documents, errors)
@@ -1451,6 +1842,106 @@ def run_self_test() -> int:
         if errors:
             print("有效自测样本未通过：", *errors, sep="\n", file=sys.stderr)
             return 1
+        equivalence = {
+            "schema_version": 1,
+            "id": "evidence.equivalence",
+            "kind": "evidence",
+            "observed_at": revision,
+            "source_refs": ["src/lib.rs#run"],
+            "supports": [behavior_id],
+            "limitations": ["只覆盖已列出的场景"],
+            "evidence_type": "behavior_equivalence",
+            "before_revision": revision,
+            "after_revision": revision,
+            "scenario_results": {
+                "run": {"status": "matched", "source_refs": ["src/lib.rs#run"]}
+            },
+            "command_results": [{"command": "project test", "exit_code": 0}],
+            "coverage": ["run"],
+        }
+        equivalence_errors: list[str] = []
+        validate_special(
+            equivalence,
+            "evidence",
+            semantic / "evidence/equivalence.md",
+            equivalence_errors,
+        )
+        if equivalence_errors:
+            print(
+                "行为等价 Evidence 自测失败：",
+                *equivalence_errors,
+                sep="\n",
+                file=sys.stderr,
+            )
+            return 1
+        broken_equivalence = dict(equivalence)
+        broken_equivalence["command_results"] = [
+            {"command": "project test", "exit_code": 1}
+        ]
+        broken_errors: list[str] = []
+        validate_special(
+            broken_equivalence,
+            "evidence",
+            semantic / "evidence/broken-equivalence.md",
+            broken_errors,
+        )
+        if not any("等价命令 0 未成功" in item for item in broken_errors):
+            print("失败的行为等价命令未被拒绝", file=sys.stderr)
+            return 1
+        asset = {
+            "schema_version": 1,
+            "id": "asset.run",
+            "kind": "asset",
+            "title": "src/lib.rs",
+            "asset_type": "file",
+            "status": "active",
+            "risk": "low",
+            "observed_at": f"source:{source_digest(root)}",
+            "boundary_refs": [],
+            "code_refs": ["src/lib.rs#run"],
+            "consumer_refs": [],
+            "behavior_refs": [],
+            "rule_refs": [],
+            "evidence_refs": [],
+            "finding_refs": [],
+        }
+        asset_errors: list[str] = []
+        validate_asset(asset, semantic / "assets/asset.run.md", asset_errors)
+        if asset_errors:
+            print("asset 对象自测失败：", *asset_errors, sep="\n", file=sys.stderr)
+            return 1
+        finding = {
+            "schema_version": 1,
+            "id": "finding.consolidation.run",
+            "kind": "finding",
+            "type": "consolidation_candidate",
+            "status": "open",
+            "severity": "medium",
+            "primary_focus": "state_authority",
+            "focus": ["contract_evidence"],
+            "boundary_ref": "boundary.runtime",
+            "behavior_refs": [],
+            "rule_refs": [],
+            "evidence_refs": [],
+            "audit_refs": [],
+            "decision_refs": [],
+            "repair_evidence_refs": [],
+            "verification_evidence_refs": [],
+            "rereview_audit_refs": [],
+            "discovered_at": revision,
+            "candidate_asset_refs": ["asset.run", "asset.run-alt"],
+            "decision": "defer",
+        }
+        finding_errors: list[str] = []
+        validate_special(
+            finding,
+            "finding",
+            semantic / "findings/finding.consolidation.run.md",
+            finding_errors,
+        )
+        if finding_errors:
+            print("归并 Finding 自测失败：", *finding_errors, sep="\n", file=sys.stderr)
+            return 1
         evidence = semantic / "evidence" / f"{evidence_id}.md"
         original = evidence.read_text(encoding="utf-8")
         evidence.write_text(
@@ -1480,6 +1971,246 @@ def run_self_test() -> int:
             check=True,
         )
         change_base = str(run_git(root, "rev-parse", "HEAD")).strip()
+        old_source = root / "src" / "old.rs"
+        old_source.write_text("pub fn old() {}\n", encoding="utf-8")
+        baseline_text = (semantic / "baseline.md").read_text(encoding="utf-8")
+        baseline_digest = re.search(r"content_digest:\s*([0-9a-f]{64})", baseline_text)
+        if baseline_digest is None:
+            print("删除自测基线缺少内容摘要", file=sys.stderr)
+            return 1
+        (semantic / "baseline.md").write_text(
+            baseline_text.replace(baseline_digest.group(1), source_digest(root), 1),
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                "deletion baseline",
+            ],
+            check=True,
+        )
+        deletion_base = str(run_git(root, "rev-parse", "HEAD")).strip()
+        old_source.unlink()
+        repair_path = semantic / "findings" / "finding.repair.md"
+        write_document(
+            repair_path,
+            {
+                "id": "finding.repair",
+                "kind": "finding",
+                "status": "resolved",
+                "type": "consolidation_candidate",
+                "decision": "migrate",
+                "canonical_asset_ref": "asset.run",
+                "severity": "high",
+                "primary_focus": "state_authority",
+                "boundary_ref": "boundary.runtime",
+                "candidate_asset_refs": ["asset.old", "asset.run"],
+                "delete_paths": ["src/old.rs"],
+                "replacement_refs": ["asset.run"],
+                "rollback_ref": "revert deletion-self-test",
+                "repair_evidence_refs": ["evidence.equivalence"],
+                "verification_evidence_refs": ["evidence.equivalence"],
+                "rereview_audit_refs": ["audit.repair"],
+            },
+            REQUIRED_HEADINGS["finding"],
+        )
+        equivalence_path = semantic / "evidence" / "evidence.equivalence.md"
+        write_document(
+            equivalence_path,
+            {
+                "id": "evidence.equivalence",
+                "kind": "evidence",
+                "evidence_type": "behavior_equivalence",
+                "observed_at": f"source:{source_digest(root)}",
+                "source_refs": ["src/lib.rs#run"],
+                "supports": [],
+                "limitations": ["只覆盖自测场景"],
+                "before_revision": deletion_base,
+                "after_revision": f"source:{source_digest(root)}",
+                "deleted_paths": ["src/old.rs"],
+                "scenario_results": {
+                    "run": {
+                        "status": "matched",
+                        "source_refs": ["src/lib.rs#run"],
+                    }
+                },
+                "command_results": [{"command": "project test", "exit_code": 0}],
+                "coverage": ["run"],
+            },
+            REQUIRED_HEADINGS["evidence"],
+        )
+        preflight_path = semantic / "preflight.json"
+        preflight_path.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "pluginId": PLUGIN_ID,
+                    "scope": "task",
+                    "repositoryRoot": str(root.resolve()),
+                    "baseRevision": deletion_base,
+                    "recordedAt": datetime.now(timezone.utc).isoformat(),
+                    "taskId": "deletion-self-test",
+                    "kind": "refactor",
+                    "risk": "high",
+                    "allowedPaths": ["src"],
+                    "reuse": ["finding.repair"],
+                    "verifications": ["project test"],
+                    "basis": [],
+                    "semanticRefs": [],
+                    "repairRefs": ["finding.repair"],
+                    "deletePaths": ["src/old.rs"],
+                    "signals": {
+                        "publicApi": False,
+                        "newStateAuthority": False,
+                        "newProtocol": False,
+                        "crossServiceMigration": False,
+                        "architectureChange": False,
+                        "unknownProductionCode": False,
+                    },
+                    "boundaryDecision": {"createsNew": False, "reason": "复用边界"},
+                    "designAuthorities": [],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        repair_objects = {
+            "finding.repair": (
+                "finding",
+                {
+                    "status": "resolved",
+                    "type": "consolidation_candidate",
+                    "decision": "migrate",
+                    "canonical_asset_ref": "asset.run",
+                    "candidate_asset_refs": ["asset.old", "asset.run"],
+                    "delete_paths": ["src/old.rs"],
+                    "replacement_refs": ["asset.run"],
+                    "rollback_ref": "revert deletion-self-test",
+                    "verification_evidence_refs": ["evidence.equivalence"],
+                },
+                repair_path,
+            ),
+            "asset.old": (
+                "asset",
+                {
+                    **asset,
+                    "id": "asset.old",
+                    "title": "src/old.rs",
+                    "code_refs": ["src/old.rs#old"],
+                },
+                semantic / "assets/asset.old.md",
+            ),
+            "asset.run": ("asset", asset, semantic / "assets/asset.run.md"),
+            "evidence.equivalence": (
+                "evidence",
+                {
+                    "evidence_type": "behavior_equivalence",
+                    "before_revision": deletion_base,
+                    "after_revision": f"source:{source_digest(root)}",
+                    "deleted_paths": ["src/old.rs"],
+                    "scenario_results": {"run": {"status": "matched"}},
+                },
+                equivalence_path,
+            ),
+        }
+        missing_equivalence: list[str] = []
+        validate_change_evidence(
+            root,
+            semantic,
+            deletion_base,
+            {"finding.repair": repair_objects["finding.repair"]},
+            missing_equivalence,
+        )
+        if not any("behavior_equivalence" in item for item in missing_equivalence):
+            print("删除缺少等价 Evidence 时未被拒绝", file=sys.stderr)
+            return 1
+        deletion_errors: list[str] = []
+        validate_change_evidence(
+            root, semantic, deletion_base, repair_objects, deletion_errors
+        )
+        if deletion_errors:
+            print(
+                "完整删除证据自测未通过：", *deletion_errors, sep="\n", file=sys.stderr
+            )
+            return 1
+        wrong_revision_objects = dict(repair_objects)
+        wrong_revision_evidence = dict(repair_objects["evidence.equivalence"][1])
+        wrong_revision_evidence["before_revision"] = "0" * 40
+        wrong_revision_objects["evidence.equivalence"] = (
+            "evidence",
+            wrong_revision_evidence,
+            equivalence_path,
+        )
+        wrong_revision_errors: list[str] = []
+        validate_change_evidence(
+            root,
+            semantic,
+            deletion_base,
+            wrong_revision_objects,
+            wrong_revision_errors,
+        )
+        if not any("before_revision" in item for item in wrong_revision_errors):
+            print("错误删除基准未被拒绝", file=sys.stderr)
+            return 1
+        deleted_canonical_objects = dict(repair_objects)
+        deleted_canonical_finding = dict(repair_objects["finding.repair"][1])
+        deleted_canonical_finding["canonical_asset_ref"] = "asset.old"
+        deleted_canonical_finding["replacement_refs"] = ["asset.old"]
+        deleted_canonical_objects["finding.repair"] = (
+            "finding",
+            deleted_canonical_finding,
+            repair_path,
+        )
+        deleted_canonical_errors: list[str] = []
+        validate_change_evidence(
+            root,
+            semantic,
+            deletion_base,
+            deleted_canonical_objects,
+            deleted_canonical_errors,
+        )
+        if not any(
+            "canonical asset 也在删除范围" in item for item in deleted_canonical_errors
+        ):
+            print("删除 canonical asset 未被拒绝", file=sys.stderr)
+            return 1
+        unknown_objects = dict(repair_objects)
+        unknown_objects["discovery.dynamic"] = (
+            "discovery",
+            {"unresolved": ["src/old.rs"]},
+            semantic / "discovery/discovery.dynamic.md",
+        )
+        unknown_errors: list[str] = []
+        validate_change_evidence(
+            root, semantic, deletion_base, unknown_objects, unknown_errors
+        )
+        if not any("未闭合动态" in item for item in unknown_errors):
+            print("动态未知未被拒绝", file=sys.stderr)
+            return 1
+        preflight_path.unlink()
+        repair_path.unlink()
+        equivalence_path.unlink()
+        old_source.write_text("pub fn old() {}\n", encoding="utf-8")
+        refreshed_baseline = semantic / "baseline.md"
+        refreshed_text = refreshed_baseline.read_text(encoding="utf-8")
+        refreshed_digest = re.search(
+            r"content_digest:\s*([0-9a-f]{64})", refreshed_text
+        )
+        if refreshed_digest is None:
+            print("恢复自测基线缺少内容摘要", file=sys.stderr)
+            return 1
+        refreshed_baseline.write_text(
+            refreshed_text.replace(refreshed_digest.group(1), source_digest(root), 1),
+            encoding="utf-8",
+        )
+        change_base = deletion_base
         language_cases = (
             ("src/api.py", "def public_api():\n    return None\n", "publicApi"),
             ("src/api.go", "package api\nfunc PublicAPI() {}\n", "publicApi"),

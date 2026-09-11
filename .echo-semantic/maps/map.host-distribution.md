@@ -4,7 +4,7 @@ id: map.host-distribution
 kind: capability_map
 title: Codex、Cursor 与 Claude Code 分发
 risk: medium
-observed_at: source:0601ac04b1ed498782b4462cee66859c92500770eb0a401cf53e3072fdac7214
+observed_at: source:cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
 boundary_refs: [boundary.host-distribution]
 behavior_refs: [behavior.multi-host-installation]
 rule_refs: [rule.single-semantic-authority]
@@ -23,7 +23,8 @@ scenarios:
     evidence_refs: [evidence.host-installation]
   cursor-install:
     status: mapped
-    source_refs: [bin/install.mjs#installCursor, bin/install.mjs#function copyPackedFiles]
+    source_refs:
+      [bin/install.mjs#installCursor, bin/install.mjs#function copyPackedFiles]
     evidence_refs: [evidence.host-installation]
     unknown: 窗口重载后的真实 sessionStart / preToolUse / stop 事件
     next_step: 重新加载 Cursor 窗口并在新会话执行显式探针

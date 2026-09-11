@@ -4,7 +4,7 @@ id: map.lifecycle-enforcement
 kind: capability_map
 title: 生命周期 Hook 与确定性门禁
 risk: high
-observed_at: source:0601ac04b1ed498782b4462cee66859c92500770eb0a401cf53e3072fdac7214
+observed_at: source:cfb2215be6b5497724b8b10c53de409983cd8364d67ef818959a5cc3247600ac
 boundary_refs: [boundary.lifecycle-enforcement]
 behavior_refs: [behavior.post-change-verification]
 rule_refs: [rule.high-risk-evidence, rule.engineering-tools-own-style]
@@ -15,7 +15,8 @@ related_map_refs: [map.semantic-workflow, map.host-distribution]
 scenarios:
   native-plugin-hooks:
     status: mapped
-    source_refs: [hooks/hooks.json#SessionStart, hooks/plugin-entry.mjs#function run]
+    source_refs:
+      [hooks/hooks.json#SessionStart, hooks/plugin-entry.mjs#function run]
     evidence_refs: [evidence.lifecycle-hooks]
   verified-hook-enforcement:
     status: mapped

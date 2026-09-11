@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { computeRoute, readRoute } from "../runtime/route.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const hook = resolve(root, "hooks/entry.mjs");
@@ -26,6 +27,7 @@ function preflightState(repository, head, taskId, allowedPaths) {
   return {
     schemaVersion: 1,
     pluginId: "echo-semantic",
+    scope: "task",
     repositoryRoot: realpathSync(repository),
     baseRevision: head,
     recordedAt: new Date().toISOString(),
@@ -51,12 +53,19 @@ function preflightState(repository, head, taskId, allowedPaths) {
 }
 
 test("SessionStart 为不同宿主输出对应上下文字段", () => {
+  const repository = mkdtempSync(
+    resolve(tmpdir(), "echo-semantic-session-context-"),
+  );
+  git(repository, "init", "-q");
+  const input = JSON.stringify({ cwd: repository });
   const cursor = spawnSync("node", [hook, "cursor", "session-start"], {
-    input: "{}",
+    cwd: repository,
+    input,
     encoding: "utf8",
   });
   const claude = spawnSync("node", [hook, "claude-code", "session-start"], {
-    input: "{}",
+    cwd: repository,
+    input,
     encoding: "utf8",
   });
   assert.equal(cursor.status, 0);
@@ -70,7 +79,8 @@ test("SessionStart 为不同宿主输出对应上下文字段", () => {
     /semantic-verify/,
   );
   const codex = spawnSync("node", [hook, "codex", "session-start"], {
-    input: "{}",
+    cwd: repository,
+    input,
     encoding: "utf8",
   });
   assert.equal(codex.status, 0);
@@ -106,6 +116,37 @@ test("SessionStart 在项目根生成用户可见状态", () => {
     /Echo Semantic/,
   );
   assert.equal(git(repository, "status", "--short"), "");
+});
+
+test("插件单独触发时注入仓库级语义维护入口", () => {
+  const repository = mkdtempSync(
+    resolve(tmpdir(), "echo-semantic-maintenance-"),
+  );
+  git(repository, "init", "-q");
+  git(repository, "config", "user.email", "test@example.com");
+  git(repository, "config", "user.name", "Test");
+  mkdirSync(resolve(repository, ".echo-semantic"));
+  writeFileSync(
+    resolve(repository, ".echo-semantic/baseline.md"),
+    "baseline\n",
+  );
+  git(repository, "add", ".");
+  git(repository, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
+  const result = spawnSync("node", [hook, "claude-code", "session-start"], {
+    cwd: repository,
+    input: JSON.stringify({ cwd: repository, source: "startup" }),
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const context = JSON.parse(result.stdout).hookSpecificOutput
+    .additionalContext;
+  assert.match(context, /semantic-discover/);
+  assert.match(context, /semantic-status/);
+  assert.match(context, /semantic-audit/);
+  assert.match(context, /semantic-verify/);
+  assert.match(context, /semantic-consolidate/);
+  assert.match(context, /不要自动进入 semantic-repair/);
+  assert.match(context, /Baseline 覆盖的已完成代码/);
 });
 
 test("已采用语义基线的项目阻断预检范围外编辑", () => {
@@ -182,6 +223,117 @@ test("已采用语义基线的项目阻断预检范围外编辑", () => {
   });
   assert.equal(missing.status, 2);
   assert.match(missing.stderr, /没有当前任务的有效 semantic-preflight/);
+});
+
+test("受控删除只允许已批准 repair 的目标路径", () => {
+  const repository = mkdtempSync(resolve(tmpdir(), "echo-semantic-delete-"));
+  git(repository, "init", "-q");
+  git(repository, "config", "user.email", "test@example.com");
+  git(repository, "config", "user.name", "Test");
+  mkdirSync(resolve(repository, ".echo-semantic/findings"), {
+    recursive: true,
+  });
+  mkdirSync(resolve(repository, ".echo-semantic/evidence"), {
+    recursive: true,
+  });
+  mkdirSync(resolve(repository, ".echo-semantic/assets"), {
+    recursive: true,
+  });
+  writeFileSync(
+    resolve(repository, ".echo-semantic/baseline.md"),
+    "baseline\n",
+  );
+  writeFileSync(
+    resolve(repository, ".echo-semantic/findings/finding.repair.md"),
+    "---\nid: finding.repair\nkind: finding\nstatus: resolved\ntype: consolidation_candidate\ndecision: migrate\ncanonical_asset_ref: asset.new\ncandidate_asset_refs: [asset.old, asset.new]\ndelete_paths: [old.txt]\nreplacement_refs: [asset.new]\nrollback_ref: revert-old\nverification_evidence_refs: [evidence.equivalence]\n---\n\n# repair\n",
+  );
+  writeFileSync(
+    resolve(repository, ".echo-semantic/assets/asset.old.md"),
+    "---\nid: asset.old\nkind: asset\nstatus: active\ncode_refs: [old.txt#old]\n---\n\n# asset\n",
+  );
+  writeFileSync(
+    resolve(repository, ".echo-semantic/assets/asset.new.md"),
+    "---\nid: asset.new\nkind: asset\nstatus: active\ncode_refs: [new.txt#new]\n---\n\n# asset\n",
+  );
+  writeFileSync(
+    resolve(repository, ".echo-semantic/evidence/evidence.equivalence.md"),
+    "---\nid: evidence.equivalence\nkind: evidence\nevidence_type: behavior_equivalence\nbefore_revision: before\nafter_revision: after\ndeleted_paths: [old.txt]\nscenario_results:\n  smoke:\n    status: matched\n---\n\n# evidence\n",
+  );
+  git(repository, "add", ".");
+  git(repository, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
+  const head = git(repository, "rev-parse", "HEAD");
+  writeFileSync(resolve(repository, "old.txt"), "old\n");
+  const state = preflightState(repository, head, "task-delete-test", [
+    "old.txt",
+  ]);
+  state.risk = "high";
+  state.repairRefs = ["finding.repair"];
+  state.deletePaths = ["old.txt"];
+  writeFileSync(
+    resolve(repository, ".echo-semantic/preflight.json"),
+    JSON.stringify(state),
+  );
+
+  const allowed = spawnSync("node", [hook, "cursor", "pre-edit"], {
+    cwd: repository,
+    input: JSON.stringify({
+      cwd: repository,
+      tool_name: "Delete",
+      tool_input: { path: "old.txt" },
+    }),
+    encoding: "utf8",
+  });
+  assert.equal(allowed.status, 0, allowed.stderr);
+  assert.deepEqual(JSON.parse(allowed.stdout), { permission: "allow" });
+
+  writeFileSync(
+    resolve(repository, ".echo-semantic/findings/finding.repair.md"),
+    "---\nid: finding.repair\nkind: finding\nstatus: resolved\n---\n\n# repair\n",
+  );
+  const malformedRepair = spawnSync("node", [hook, "cursor", "pre-edit"], {
+    cwd: repository,
+    input: JSON.stringify({
+      cwd: repository,
+      tool_name: "Delete",
+      tool_input: { path: "old.txt" },
+    }),
+    encoding: "utf8",
+  });
+  assert.equal(malformedRepair.status, 2);
+  assert.match(malformedRepair.stderr, /没有已批准的 repair/);
+
+  writeFileSync(
+    resolve(repository, ".echo-semantic/findings/finding.repair.md"),
+    "---\nid: finding.repair\nkind: finding\nstatus: resolved\ntype: consolidation_candidate\ndecision: migrate\ncanonical_asset_ref: asset.new\ncandidate_asset_refs: [asset.old, asset.new]\ndelete_paths: [old.txt]\nreplacement_refs: [asset.new]\nrollback_ref: revert-old\nverification_evidence_refs: [evidence.missing]\n---\n\n# repair\n",
+  );
+  const missingEvidence = spawnSync("node", [hook, "cursor", "pre-edit"], {
+    cwd: repository,
+    input: JSON.stringify({
+      cwd: repository,
+      tool_name: "Delete",
+      tool_input: { path: "old.txt" },
+    }),
+    encoding: "utf8",
+  });
+  assert.equal(missingEvidence.status, 2);
+  assert.match(missingEvidence.stderr, /没有已批准的 repair/);
+
+  state.deletePaths = [];
+  writeFileSync(
+    resolve(repository, ".echo-semantic/preflight.json"),
+    JSON.stringify(state),
+  );
+  const denied = spawnSync("node", [hook, "cursor", "pre-edit"], {
+    cwd: repository,
+    input: JSON.stringify({
+      cwd: repository,
+      tool_name: "Delete",
+      tool_input: { path: "old.txt" },
+    }),
+    encoding: "utf8",
+  });
+  assert.equal(denied.status, 2);
+  assert.match(denied.stderr, /没有已批准的 repair/);
 });
 
 test("设计权威摘要变化后 Hook 拒绝沿用高风险预检", () => {
@@ -351,6 +503,65 @@ test("失败 Stop 不被去重且保留预检供连续重试", () => {
   assert.equal(codex.status, 2);
   assert.equal(JSON.parse(codex.stdout).decision, "block");
   assert.match(JSON.parse(codex.stdout).reason, /语义完成门禁未通过/);
+});
+
+test("成功 Stop 后同一工作树重复调用幂等放行", () => {
+  const repository = mkdtempSync(
+    resolve(tmpdir(), "echo-semantic-stop-repeat-"),
+  );
+  git(repository, "init", "-q");
+  git(repository, "config", "user.email", "test@example.com");
+  git(repository, "config", "user.name", "Test");
+  mkdirSync(resolve(repository, ".echo-semantic"));
+  writeFileSync(
+    resolve(repository, ".echo-semantic/baseline.md"),
+    "无效基线\n",
+  );
+  git(repository, "add", ".echo-semantic/baseline.md");
+  git(repository, "-c", "commit.gpgsign=false", "commit", "-qm", "baseline");
+  writeFileSync(resolve(repository, "change.txt"), "change\n");
+
+  computeRoute(repository, "claude-code", "stop", {
+    observedEvent: "stop",
+  });
+  const previous = readRoute(repository);
+  previous.hookEvidence.stop.observedAt = new Date(
+    Date.now() - 1_000,
+  ).toISOString();
+  previous.verificationReceipt = {
+    schemaVersion: 1,
+    result: "passed",
+    verifiedAt: new Date(Date.now() - 1_000).toISOString(),
+    pluginVersion: "0.1.0",
+    host: "claude-code",
+    headRevision: previous.headRevision,
+    worktreeFingerprint: previous.worktreeFingerprint,
+  };
+  writeFileSync(
+    resolve(repository, ".echo-semantic/route.json"),
+    `${JSON.stringify(previous, null, 2)}\n`,
+  );
+
+  const repeated = spawnSync("node", [hook, "claude-code", "stop"], {
+    cwd: repository,
+    input: JSON.stringify({ cwd: repository }),
+    encoding: "utf8",
+  });
+  assert.equal(repeated.status, 0, repeated.stderr);
+  assert.deepEqual(JSON.parse(repeated.stdout), {});
+  assert.match(
+    readFileSync(resolve(repository, ".echo-semantic/status.md"), "utf8"),
+    /当前工作树已通过此前 Stop 语义门禁/,
+  );
+
+  writeFileSync(resolve(repository, "new-change.txt"), "new change\n");
+  const changed = spawnSync("node", [hook, "claude-code", "stop"], {
+    cwd: repository,
+    input: JSON.stringify({ cwd: repository }),
+    encoding: "utf8",
+  });
+  assert.equal(changed.status, 2);
+  assert.match(changed.stderr, /没有有效 semantic-preflight/);
 });
 
 test("明确的新会话清除上一任务的预检状态", () => {

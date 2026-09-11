@@ -36,6 +36,7 @@ test("semantic-status 输出基线、路由和 Frontier", () => {
     "findings",
     "audits",
     "discovery",
+    "assets",
   ]) {
     mkdirSync(resolve(repository, `.echo-semantic/${directory}`), {
       recursive: true,
@@ -69,6 +70,7 @@ test("semantic-status 输出基线、路由和 Frontier", () => {
     "rules",
     "evidence",
     "discovery",
+    "assets",
   ]) {
     writeFileSync(
       resolve(

@@ -12,6 +12,8 @@ const expectedSkills = new Set([
   "semantic-discover",
   "semantic-diff",
   "semantic-audit",
+  "semantic-consolidate",
+  "semantic-repair",
   "semantic-decide",
   "semantic-verify",
   "semantic-contract",

@@ -25,7 +25,7 @@ sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 from preflight_contract import validate_preflight
 
 PLUGIN_ID = "echo-semantic"
-ROUTES = {"bootstrap", "fast", "standard", "strict", "idle"}
+ROUTES = {"bootstrap", "maintenance", "fast", "standard", "strict", "idle"}
 KINDS = {"bugfix", "feature", "refactor", "contract", "style"}
 RISKS = {"low", "medium", "high"}
 BASELINE_FIELDS = {
@@ -108,6 +108,7 @@ def scan_objects(root: Path) -> dict[str, Any]:
         "findings",
         "audits",
         "discovery",
+        "assets",
     ):
         object_root = root / directory
         paths = sorted(object_root.glob("*.md")) if object_root.is_dir() else []
@@ -182,6 +183,7 @@ def baseline_state(root: Path, value: dict[str, Any] | None) -> dict[str, Any]:
         "findings",
         "audits",
         "discovery",
+        "assets",
     ):
         if not (root / directory).is_dir():
             reasons.append(f"缺少语义目录：{directory}")
@@ -292,7 +294,10 @@ def route_state(root: Path, value: dict[str, Any] | None) -> dict[str, Any]:
     }
     if enforcement != expected_enforcement:
         reasons.append("执行能力与 Hook 事件证据不一致")
-    if value.get("route") != "bootstrap" and "stop" not in valid_evidence:
+    if (
+        value.get("route") not in {"bootstrap", "maintenance"}
+        and "stop" not in valid_evidence
+    ):
         reasons.append("非 bootstrap 路由缺少停止 Hook 事件证据")
     updated_at = value.get("updatedAt")
     try:
@@ -429,6 +434,14 @@ def next_actions(
         return ["semantic-discover", "semantic-verify"]
     if baseline.get("inventoryClosure") != "closed":
         return ["semantic-discover"]
+    if route and route.get("route") == "maintenance":
+        return [
+            "semantic-discover",
+            "semantic-status",
+            "semantic-consolidate",
+            "semantic-audit",
+            "semantic-verify",
+        ]
     if route and route.get("trusted") is not True:
         return ["semantic-verify"]
     if route and route.get("changedPaths") and not preflight.get("fresh"):
