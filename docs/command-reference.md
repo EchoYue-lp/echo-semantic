@@ -249,3 +249,9 @@ npm run verify
 ```
 
 `.echo-semantic/` 中的长期语义 Markdown 正常提交；上述 5 个运行态文件由插件写入 `.git/info/exclude`，不进入提交。
+
+## 插件仓库 CI 的 uv 缓存依据
+
+本仓库 CI 的 `setup-uv` 缓存失效键显式匹配 `package.json` 和 `skills/semantic-contract/scripts/verify_semantic.py`：
+前者保存 npm 验证脚本与 uvx Ruff 版本，后者的 PEP 723 头保存 PyYAML 依赖。默认 requirements/uv.lock glob 在本仓库没有对应文件，
+不能作为缓存依赖依据。此设置只绑定缓存失效来源，不关闭缓存、测试或原始警告输出；实际 CI 结论仍以相应提交的完整日志为准。
