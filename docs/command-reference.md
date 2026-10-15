@@ -255,3 +255,11 @@ npm run verify
 本仓库 CI 的 `setup-uv` 缓存失效键显式匹配 `package.json` 和 `skills/semantic-contract/scripts/verify_semantic.py`：
 前者保存 npm 验证脚本与 uvx Ruff 版本，后者的 PEP 723 头保存 PyYAML 依赖。默认 requirements/uv.lock glob 在本仓库没有对应文件，
 不能作为缓存依赖依据。此设置只绑定缓存失效来源，不关闭缓存、测试或原始警告输出；实际 CI 结论仍以相应提交的完整日志为准。
+
+
+## 历史引用迁移报告
+
+连续性命令和退出规则保持原入口；Audit的每项challenge按其revision或顶层fallback恢复原Git。受控文稿存储迁移沿既有semantic_continuity.resolutions增加historical_reference_migrations，精确绑定snapshot issue、原父指纹、真实历史blob/锚/mode/角色、matched等价场景及批准ADR。详见唯一[材料合同](../skills/semantic-contract/references/semantic-artifact-contract.md)。报告保snapshot_diagnostics与resolved_historical_reference_migrations；原始诊断可保留而对应父文稿issue被合法解决，result缺current引用仍fatal。没有忽略父错误或将测试/源码改为文稿的选项，未映射问题继续非零。
+
+
+强源码/测试consumer迁移使用同一resolution中严格的current_reference_replacements；碰撞组保聚合和每variant义务，用source_dependency_variant_replacements逐原ref绑定真实结果consumer。两者不是忽略错误选项，结果树/role/锚/SHA/mode及原完整Eq/ADR必须全部通过，未处置与结果歧义继续非零。报告补充source_dependency_collisions、resolved_source_dependency_collisions与resolved_current_reference_replacements；单variant旧ID/FP不改。

@@ -14,3 +14,6 @@
 
 本目录中的长期 Markdown 材料用于约束 Echo Semantic 自身开发，必须随代码提交 GitHub。仅根级 `status.md`、`status.json`、
 `preflight.json`、`route.json`、`continuation.json` 是可丢弃运行态，由 `.git/info/exclude` 精确排除，不得提交。
+
+
+`local/<task>/`承接本任务已准备的日志、候选和临时脚本，只是未跟踪运行态，不读为正式对象，也不得作为正式源码引用；其它未知根目录仍拒绝。

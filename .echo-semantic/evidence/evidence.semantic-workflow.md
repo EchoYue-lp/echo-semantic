@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.semantic-workflow
 kind: evidence
-observed_at: source:79b3c35f6c483b536c72cc29cdf63e5f35299e128ff076923acc456f862c0e2b
+observed_at: 22e241f723673330e9d6bec638def0f78968c74c
 source_refs:
   - .github/workflows/ci.yml#cache-dependency-glob
   - package.json#format:check
@@ -59,3 +59,8 @@ PR 的原完整测试与语义门禁已通过，但 `setup-uv` 默认 glob 没�
 `.github/workflows/ci.yml` 仅新增原 action 支持的两条 `cache-dependency-glob`，绑定 `package.json` 的验证命令/uvx 版本和
 `skills/semantic-contract/scripts/verify_semantic.py` 的 PEP 723 PyYAML 声明，不改变校验器、`npm test`、`npm run verify` 或 action 版本。
 `docs/command-reference.md` 和既有架构设计记录失效来源与可重建性质；本次局部配置不冒称新的远端 CI 已运行或原非法 UTF-8 字节有变化。
+
+
+## 原解码/CI缓存观察的可恢复Git锚
+
+原header的source:79b3c35f6c483b536c72cc29cdf63e5f35299e128ff076923acc456f862c0e2b为旧实现当期源码摘要，已在真实Git 22e241f723673330e9d6bec638def0f78968c74c 对应源码树重算为79b3c35f6c483b536c72cc29cdf63e5f35299e128ff076923acc456f862c0e2b。此处仅将旧观察载体固定到可恢复的原提交，旧代码/命令/限制/原CI时点不改，不把原审滚为当前A+B业务审。当前工作树的新摘要单独由baseline绑定。

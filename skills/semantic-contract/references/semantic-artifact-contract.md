@@ -207,3 +207,54 @@ revision 必须返回非零。报告是可重算的命令输出或 CI Artifact�
 
 任何对象状态都不能使用 `clean`、`safe` 或其它绝对安全词。结构校验通过只证明合同成立，不证明业务正确、
 审查充分、测试通过或系统没有缺陷。
+
+
+### 历史观察与可选文稿存储迁移
+
+普通引用与连续性共用观察分组。Audit challenge的revision存在时严格采用（显式null、空串、非法值不回退），缺少该键才采用顶层revision；其它对象采用observed_at。Git、blob或锚不可恢复仍失败；历史成功不自动豁免结果树引用。consumer_refs和等价scenario_results中的source_refs也须检查。
+
+连续性snapshot的current_reference_issues为派生输出，不由采用方填报；保留errors文本，每条含issue_type（historical_current_reference_missing或historical_current_anchor_missing）、snapshot_revision、owner、owner_document_path、owner_document_sha256、owner_fingerprint、raw_reference、observed_revision、historical_content_sha256、historical_git_mode、historical_anchor、source_role、source_dependency（仅Evidence派生）和error_index。issue_id为除error_index之外这些实际身份字段的canonical JSON SHA256，绑定同一次snapshot/父指纹；不是错误文字、位置序号或任意新声明的hash。
+
+只有历史commit/blob/mode/锚真实存在才形成这类issue；否则原错误不可迁移。Evidence缺当前原件时恢复owner#source:<历史SHA>义务，fingerprint仍content/anchor/mode/原role；同ID不同fingerprint冲突失败，不选最后一个。源角色使用原continuity_source_role，存储例外固定只documentation，不含任何declared:*、test_consumer、production_source、protocol或其它角色。源码、测试和其真实consumer仍走原完整替代合同或阻断，不把档案后缀当角色许可。
+
+现有semantic_continuity.resolutions的每项可增加三个严格可选字段：historical_reference_migrations、current_reference_replacements、source_dependency_variant_replacements；不提供时保持原合同，提供任一字段时它必须为非空严格列表。resolution仅允许disposition、predecessor_fingerprints、replacement_ref、evidence_refs、decision_authorities、compatibility_impact、rollback_ref以及这三个字段；未知字段/拼写一律拒绝。
+
+```yaml
+historical_reference_migrations:
+- issue_id: <64hex，真实snapshot issue>
+  snapshot_revision: <40hex，原snapshot>
+  owner: <原owner ID>
+  owner_fingerprint: <64hex，原owner指纹>
+  raw_reference: <原path#anchor>
+  observed_revision: <40hex，实际历史commit>
+  historical_content_sha256: <64hex>
+  historical_git_mode: '100644'
+  source_role: documentation
+  replacement_ref: <同一resolution的合法canonical义务>
+  equivalence_evidence_ref: <同一resolution.evidence_refs中的behavior_equivalence>
+  scenario: <该Evidence中status为matched的确切键>
+```
+
+列表每项只能包含上述完整字段，重复issue、未知字段、缺字段或错类型失败。每个issue必须由其source_dependency（若有）否则其owner那一条resolution承接。先通过原全部父指纹/result source digest/替代类型/双方supports/全部matched场景/before和after覆盖检查，并实际处置为replaced（不能靠preserved快速路径），再核每个身份字段、replacement和确切等价场景。
+
+存储迁移即使disposition=replaced也须正式批准design/ADR，复用原decision_authority_errors：文件位于结果树、类型和SHA正确、批准状态唯一明确、含全部父revision/原义务/理由/兼容/回滚；另须具名issue_id、owner与原snapshot_revision。不是Admin提案或一个approved字符串。resolved_conflict继续受原冲突合同约束，自身replaced、Evidence充canonical或无业务等价均失败。
+
+报告snapshot_diagnostics完整保各merge_base/predecessor/result原errors及typed issues。只有完整合法且显式匹配的父documentation issue才从终态errors移入resolved_historical_reference_migrations，保原issue、适用snapshot_roles、处置/Evidence/场景定位；重复/无映射/非法mapping及其它原错误继续fatal。相同revision出现在父和result也不会豁免result；所有结果current缺失始终失败。总passed仍要求errors为空且全部义务合法保留/替代/退役，不以新增loss0、已恢复tag或某个resolution无reasons冒全部通过。
+
+此功能不授权采用方删除档案、业务代码或语义义务，不修改风险/状态/角色来求绿。272个文稿和另外24个强consumer是一次采用方案例的不同角色，不是工具固定数量或自动清理目标。
+
+
+### 非文稿强替代与歧义依赖
+
+`current_reference_replacements`是resolution的另一严格可选列表：采用historical_reference_migrations的所有identity字段，另加replacement_source_ref、replacement_content_sha256（64hex）、replacement_git_mode。只允许原plain非documentation角色（declared:*仍拒绝）；B文稿locator例外不扩大。所有原fullresolution/Eq/ADR检查相同，另从结果canonical owner确切引用与等价matched场景共同列出的replacement_source_ref读真实Git blob/mode/锚，声明SHA/mode相符且原continuity_path_role必须等原role。生产/测试不得用文稿或declared字段假扮同角色。authority还须具名真实replacement ref。报告单独保存resolved_current_reference_replacements；result缺引用及无映射仍fatal。
+
+同owner#source:SHA有多个不同(content/anchor/mode/role)指纹时形成`source_dependency_collisions`。仅碰撞组的旧ID指纹是sorted全部variant指纹的canonical JSON SHA256；每variant的义务ID为旧ID#variant:<原完整FP>，fingerprint等原完整FP。相同variant多个rawref逐条保存；普通单variant ID/FP完全不变，禁止last-write/择一。typed collision包含snapshot_revision、owner、dependency_id、aggregate_fingerprint、variants（fingerprint/content_sha256/anchor/git_mode/source_role/obligation/references[raw_reference,actual_revision]）、collision_id和error_index；collision_id为除error_index之外真实身份canonical JSON SHA256。
+
+原聚合resolution必须resolved_conflict，各variant必须各实际replaced，全套原父FP/Eq/afterdigest/正式批准ADR逐条通过。每variant另提供严格source_dependency_variant_replacements列表，字段恰为snapshot_revision、collision_id、variant_obligation、variant_fingerprint、raw_reference、source_role、replacement_ref、replacement_source_ref、replacement_content_sha256、replacement_git_mode、equivalence_evidence_ref、scenario。每原rawref唯一mapping、原variant及collision身份精同；当前canonical/具名matched场景/真实Gitrole的核验复用上段同一helper，aggregate无默认role，docs/test/prod不能互换。ADR具名collision、owner、全部variant/聚合义务、所有父revision及兼容/回滚；任一缺失仍fatal，不能只写approved字符串。
+
+只解base/predecessor且所有variant真实完整替代的那一项typed collision；result原歧义始终fatal，原snapshot错误保留，resolved_source_dependency_collisions保存明确处置。孤mapping/未知字段/重复身份/少任何variant或rawref/角色SHA模式锚错误/无authority/未matched继续失败。旧source ID表达不足被明确揭示，不自动重写全部源身份或将所有历史归档视为文稿。
+
+
+### 本地产物运行态
+
+`.echo-semantic/local/<task>/`是已准备的任务本地产物目录，和根级运行态文件一样不提交，不作为source_refs/code_refs/consumer_refs，不参与正式对象收集；目录及根条目不可符号链接，local根不可普通文件，任何被Git跟踪的local后代失败。只接受精确local目录，不放宽其它未声明根条目。历史Git若错误跟踪本地产物也不能把它冒正式依赖。
