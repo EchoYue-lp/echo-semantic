@@ -56,3 +56,21 @@ result commit。不得把包含 Evidence 自身的 commit SHA 写进同一 Evide
 构造 merge-base、目标分支、来源分支和候选结果夹具：两个分支分别新增不同高风险语义义务，结果遗漏任一义务时必须非零退出；
 两侧对同一义务作出不同修改时必须报告语义冲突；稳定身份下的代码移动通过；有完整替代 Evidence 或退役 Decision 时通过；
 前置测试与实现同时丢失、输入 revision 不可恢复或存在动态未知时阻断。普通单前置版本重构和 squash/rebase 前报告使用同一合同。
+
+
+## 2026-10-15补充：精确历史文稿存储迁移（已批准）
+
+用户明确批准历史引用解析A和受控存储迁移B实现及正常提交、PR/CI和main交付，不包含插件/registry版本发布。背景是历史source_refs合法、但连续性要求当前物理副本时，已有合法replacement仍无法处置其父snapshot错误。继续复制全部阶段日志或无条件忽略父错误都不采纳。
+
+采用共享kind-aware原观察解析及逐issue的显式matched迁移。仅documentation原推导角色适用，全部历史Git/blob/锚/mode/owner/父指纹必须真实可恢复；复用原replacement、behavior_equivalence、批准authority、兼容和回滚合同，新增字段严格校验。原snapshot错误保留，只有具体被证明的base/predecessor存储issue可进入resolved列表。结果current缺失、非文稿角色、业务consumer缺失及未映射错误始终失败；不把SDK全部档案自动分类为文稿，不授权SDK代码/义务退役。
+
+代价是迁移材料需精确绑定源与权威，不能仅给历史tag声明。回滚工具提交恢复原fail-closed行为，原Git输入、旧完整诊断与迁移Evidence仍可恢复；采用方不得因工具回滚删除证据。实现范围仅原verifier/合同/测试/设计及自身语义依据，版本、宿主事件和安装器不变。
+
+
+### 保全歧义依赖与真实强consumer替代（同次已批准范围）
+
+原owner#source:SHA若同时有不同anchor/mode/role，不能以first/last覆盖事实。仅碰撞组保聚合义务（全部变体FP的规范摘要）并生成原ID#variant:<原FP>的每个派生义务；正常单变体ID/FP保持原字节。每变体原rawref均保，typed碰撞错误不自动忽略。只有聚合resolved_conflict、所有variant各实际replaced及原全部父指纹/Eq/afterdigest/真实批准ADR完整，且result已无碰撞，才解对应父typed碰撞；result碰撞永fatal。
+
+variant替代和非documentation历史current-ref的普通强替代都核真实结果事实：canonical owner和Eq具名matched场景必须共同引用完整replacement source_ref；从result Git实际读取blob/mode/锚/原path role，SHA/mode相符且path role恰等原plain role。declared字段不能覆盖实际role，源码/测试不得用文稿locator顶替；聚合没有默认role。每原rawref均显式绑定，任一丢失/字段/父FP/ADR不符/未matched都阻断。
+
+新增严格可选resolution字段current_reference_replacements和source_dependency_variant_replacements沿同一原完整replacement/Eq/ADR验证器。原B historical_reference_migrations仍只documentation，非doc真实same-role入口不是文稿豁免；结果缺依赖/历史Git不可恢复/未映射其它错误永fatal。不自动判SDK24或125variants已经迁移，不增ignore开关/第二validator。

@@ -47,3 +47,8 @@ finding_refs: []
 ## 裁决记录
 
 ADR 0003 已确认保护语义义务而不是源码并集。
+
+
+## 历史文稿存储迁移的边界
+
+本轮沿唯一kind-aware引用worklist，Audit每challenge取自身revision或顶层fallback，历史Git/blob/锚不能由当前文件替代。B只对完整匹配的父documentation问题在原replacement/Eq/批准ADR合同之后处理，结果引用缺失及非documentation角色、未匹配、真正consumer丢失仍失败。报告保原snapshot诊断与每项解决依据，不把数量回落或历史tag存在当业务等价。

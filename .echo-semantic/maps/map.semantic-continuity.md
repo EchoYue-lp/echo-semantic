@@ -33,6 +33,20 @@ scenarios:
     status: mapped
     source_refs: [action.yml#continuity-merge-base]
     rule_refs: [rule.semantic-obligation-preservation]
+  historical-observation:
+    status: mapped
+    source_refs: [skills/semantic-contract/scripts/verify_semantic.py]
+    behavior_refs: [behavior.semantic-continuity]
+    evidence_refs: [evidence.semantic-continuity]
+    review_scope: 本次kind-aware观察/真实历史Git及逐issue迁移，当前实现出处由Evidence当期段明确，旧map observation不伪刷新。
+  bound-historical-migration:
+    status: mapped
+    source_refs: [skills/semantic-contract/scripts/verify_semantic.py, tests/test_continuity.py]
+    behavior_refs: [behavior.semantic-continuity]
+    rule_refs: [rule.semantic-obligation-preservation]
+    evidence_refs: [evidence.semantic-continuity]
+    review_scope: documentation例外与plain同role强替代分开；实际全部variant/Eq/ADR/currentconsumer匹配，结果fatal及其它未映射错误保。
+
 ---
 
 # 多前置版本语义连续性
@@ -76,3 +90,8 @@ scenarios:
 ## 未展开项
 
 未建模的隐含行为只能由启发式生成候选；动态运行时事实仍需采用方 Evidence。
+
+
+## 本次当前实现范围
+
+旧observation及四原scene/正文保留；新两入口由本任务当前源码/真实Git正负例具名限定，不能推所有采用方迁移全0。源码聚合义务保全部变体，正常singlevariant保持ID/FP，未匹配与resultcurrent缺失继续失败。

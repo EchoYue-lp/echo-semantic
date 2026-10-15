@@ -1780,5 +1780,932 @@ class ContinuityTests(unittest.TestCase):
         self.assertEqual(first.stdout, report_path.read_text(encoding="utf-8"))
 
 
+class HistoricalStorageMigrationTests(unittest.TestCase):
+    setUp = ContinuityTests.setUp
+    tearDown = ContinuityTests.tearDown
+    commit_current = ContinuityTests.commit_current
+
+    def verifier(self):
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("storage_verifier", VERIFIER)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def fixture(
+        self,
+        path="docs/archive.log",
+        *,
+        declared=False,
+        anchor=None,
+        extra_reference=False,
+    ):
+        root = self.repository
+        original = root / path
+        original.parent.mkdir(parents=True, exist_ok=True)
+        original.write_text("original_anchor\nimmutable receipt\n")
+        if extra_reference:
+            (root / "docs/second.log").write_bytes(original.read_bytes())
+        historical = self.commit_current("原历史原件")
+        original.unlink()
+        if extra_reference:
+            (root / "docs/second.log").unlink()
+        evidence = {
+            "schema_version": 1,
+            "id": "evidence.original",
+            "kind": "evidence",
+            "observed_at": historical,
+            "source_refs": [path + ("#" + anchor if anchor else "")],
+            "supports": ["behavior.runtime"],
+            "limitations": ["原有限范围保持"],
+        }
+        if extra_reference:
+            evidence["source_refs"].append("docs/second.log")
+        if declared:
+            evidence["asset_type"] = "test_consumer"
+        write_semantic_document(root, "evidence", "evidence.original", evidence)
+        write_behavior(
+            root,
+            "behavior.runtime",
+            "运行时保持可用。",
+            evidence_refs=["evidence.original"],
+        )
+        parent = self.commit_current("历史证据不在当前树")
+        module = self.verifier()
+        snapshot = module.continuity_snapshot(root, parent)
+        issue = snapshot["current_reference_issues"][0]
+        dependency = issue["source_dependency"]
+        self.assertIn(dependency, snapshot["obligations"])
+        index = root / "docs/index.md"
+        index.parent.mkdir(parents=True, exist_ok=True)
+        index.write_text("历史原件 " + historical + ":" + path + "\n")
+        adr = root / "docs/adr/0001-storage.md"
+        adr.parent.mkdir(parents=True, exist_ok=True)
+        ids = ["evidence.original", dependency]
+        adr.write_text(
+            "# 存储迁移\n\n## 状态\n\n已批准\n\n## 背景\n\n原历史副本迁移。\n\n"
+            "## 候选方案\n\n保留原件或精确索引。\n\n## 决策\n\n"
+            + "\n".join(ids + [issue["issue_id"], parent])
+            + "\n理由：只改变存储。\n\n## 影响\n\n兼容：原义务不变。回滚：恢复原路径。\n"
+        )
+        write_asset_marker(root, "asset.locator", code_refs=["docs/index.md"])
+        evidence["asset_refs"] = ["asset.locator"]
+        digest = source_digest(root)
+        evidence.update(observed_at="source:" + digest, source_refs=["docs/index.md"])
+        write_semantic_document(root, "evidence", "evidence.original", evidence)
+        write_equivalence(
+            root,
+            "evidence.storage-equivalence",
+            ids + ["asset.locator"],
+            before_revision=parent,
+            source_ref="docs/index.md",
+        )
+        migration = {
+            key: issue[key]
+            for key in [
+                "issue_id",
+                "snapshot_revision",
+                "owner",
+                "owner_fingerprint",
+                "raw_reference",
+                "observed_revision",
+                "historical_content_sha256",
+                "historical_git_mode",
+                "source_role",
+            ]
+        }
+        migration.update(
+            replacement_ref="asset.locator",
+            equivalence_evidence_ref="evidence.storage-equivalence",
+            scenario="runtime",
+        )
+        resolutions = {}
+        for identifier in ids:
+            resolutions[identifier] = {
+                "disposition": "resolved_conflict"
+                if identifier == "evidence.original"
+                else "replaced",
+                "predecessor_fingerprints": {
+                    parent: snapshot["obligations"][identifier]["fingerprint"]
+                },
+                "replacement_ref": "asset.locator",
+                "evidence_refs": ["evidence.storage-equivalence"],
+                "decision_authorities": [
+                    {
+                        "kind": "adr",
+                        "path": "docs/adr/0001-storage.md",
+                        "content_digest": hashlib.sha256(adr.read_bytes()).hexdigest(),
+                    }
+                ],
+                "compatibility_impact": "原行为及失败范围保留，只迁移文稿存储。",
+                "rollback_ref": historical,
+            }
+        resolutions[dependency]["historical_reference_migrations"] = [migration]
+        write_continuity_evidence(
+            root,
+            "evidence.storage-continuity",
+            parent,
+            [parent],
+            "source:" + digest,
+            resolutions,
+        )
+        result = self.commit_current("精确历史存储迁移")
+        return module, parent, result, resolutions, dependency, issue
+
+    def compare(self, module, parent, result):
+        return module.compare_continuity(self.repository, parent, [parent], result)
+
+    def rewrite(self, module, parent, resolutions):
+        write_continuity_evidence(
+            self.repository,
+            "evidence.storage-continuity",
+            parent,
+            [parent],
+            "source:" + source_digest(self.repository),
+            resolutions,
+        )
+        return self.commit_current("单变量迁移反例")
+
+    def test_exact_documentation_migration_preserves_diagnostics_and_passes(self):
+        module, parent, result, _, _, issue = self.fixture()
+        report = self.compare(module, parent, result)
+        self.assertTrue(report["passed"], report)
+        self.assertEqual(report["errors"], [])
+        self.assertTrue(report["snapshot_diagnostics"])
+        resolved = report["resolved_historical_reference_migrations"]
+        self.assertEqual(
+            {row["issue"]["issue_id"] for row in resolved}, {issue["issue_id"]}
+        )
+        self.assertEqual(
+            {role for row in resolved for role in row["snapshot_roles"]},
+            {"merge_base", "predecessor"},
+        )
+        self.assertTrue(
+            all(row["status"] in {"preserved", "replaced"} for row in report["results"])
+        )
+
+    def test_each_identity_or_resolution_failure_remains_blocked(self):
+        import copy
+
+        module, parent, _, valid, dep, _ = self.fixture()
+        changes = {
+            "missing_mapping": lambda r: r[dep].pop("historical_reference_migrations"),
+            "wrong_owner": lambda r: r[dep]["historical_reference_migrations"][
+                0
+            ].update(owner="evidence.other"),
+            "wrong_parent_fp": lambda r: r[dep]["predecessor_fingerprints"].update(
+                {parent: "f" * 64}
+            ),
+            "wrong_issue_id": lambda r: r[dep]["historical_reference_migrations"][
+                0
+            ].update(issue_id="f" * 64),
+            "wrong_blob": lambda r: r[dep]["historical_reference_migrations"][0].update(
+                historical_content_sha256="f" * 64
+            ),
+            "wrong_mode": lambda r: r[dep]["historical_reference_migrations"][0].update(
+                historical_git_mode="100755"
+            ),
+            "wrong_role": lambda r: r[dep]["historical_reference_migrations"][0].update(
+                source_role="test_consumer"
+            ),
+            "wrong_revision": lambda r: r[dep]["historical_reference_migrations"][
+                0
+            ].update(observed_revision="f" * 40),
+            "missing_adr": lambda r: r[dep].update(decision_authorities=[]),
+            "wrong_adr_sha": lambda r: r[dep]["decision_authorities"][0].update(
+                content_digest="f" * 64
+            ),
+            "duplicate_mapping": lambda r: r[dep][
+                "historical_reference_migrations"
+            ].append(copy.deepcopy(r[dep]["historical_reference_migrations"][0])),
+            "unknown_typo": lambda r: r[dep]["historical_reference_migrations"][
+                0
+            ].update(source_rol="documentation"),
+            "self_replacement": lambda r: r[dep].update(replacement_ref=dep),
+            "wrong_replacement_kind": lambda r: r[dep].update(
+                replacement_ref="evidence.original"
+            ),
+            "wrong_scenario": lambda r: r[dep]["historical_reference_migrations"][
+                0
+            ].update(scenario="not-matched"),
+        }
+        for name, change in changes.items():
+            with self.subTest(name=name):
+                altered = copy.deepcopy(valid)
+                change(altered)
+                result = self.rewrite(module, parent, altered)
+                self.assertFalse(self.compare(module, parent, result)["passed"], name)
+
+    def test_test_consumer_cannot_get_documentation_exception(self):
+        module, parent, result, _, _, _ = self.fixture("docs/tests/archive.xml")
+        self.assertFalse(self.compare(module, parent, result)["passed"])
+
+    def test_declared_consumer_cannot_get_documentation_exception(self):
+        module, parent, result, _, _, _ = self.fixture(declared=True)
+        self.assertFalse(self.compare(module, parent, result)["passed"])
+
+    def test_result_current_missing_is_always_fatal(self):
+        module, parent, _, _, _, _ = self.fixture()
+        (self.repository / "docs/index.md").unlink()
+        result = self.commit_current("结果当前依赖丢失")
+        report = self.compare(module, parent, result)
+        self.assertFalse(report["passed"])
+        self.assertTrue(report["errors"])
+
+    def test_nonexistent_historical_anchor_is_fatal_not_migratable(self):
+        module, parent, _, _, _, _ = self.fixture()
+        data = json.loads(
+            (self.repository / ".echo-semantic/evidence/evidence.original.md")
+            .read_text()[4:]
+            .split("\n---\n", 1)[0]
+        )
+        data.update(observed_at=parent, source_refs=["src/runtime.txt#never_existed"])
+        write_semantic_document(self.repository, "evidence", "evidence.original", data)
+        revision = self.commit_current("原锚本不存在")
+        snapshot = module.continuity_snapshot(self.repository, revision)
+        self.assertTrue(any("源码引用锚点不存在" in e for e in snapshot["errors"]))
+        self.assertFalse(
+            any(
+                issue["raw_reference"].endswith("never_existed")
+                for issue in snapshot["current_reference_issues"]
+            )
+        )
+
+    def test_same_blob_two_references_require_two_specific_mappings(self):
+        module, parent, result, _, _, _ = self.fixture(extra_reference=True)
+        snapshot = module.continuity_snapshot(self.repository, parent)
+        self.assertEqual(len(snapshot["current_reference_issues"]), 2)
+        self.assertEqual(
+            len({i["issue_id"] for i in snapshot["current_reference_issues"]}), 2
+        )
+        self.assertEqual(
+            len({i["source_dependency"] for i in snapshot["current_reference_issues"]}),
+            1,
+        )
+        report = self.compare(module, parent, result)
+        self.assertFalse(report["passed"])
+        self.assertEqual(len(report["resolved_historical_reference_migrations"]), 1)
+        self.assertTrue(any("second.log" in e for e in report["errors"]))
+
+    def refresh_migration_materials(
+        self, parent, resolutions, *, extra_equivalence=None
+    ):
+        root = self.repository
+        digest = source_digest(root)
+        path = root / ".echo-semantic/evidence/evidence.storage-equivalence.md"
+        eq = json.loads(path.read_text()[4:].split("\n---\n", 1)[0])
+        eq.update(observed_at="source:" + digest, after_revision="source:" + digest)
+        write_semantic_document(root, "evidence", eq["id"], eq)
+        if extra_equivalence is not None:
+            extra = dict(eq)
+            extra.update(
+                id="evidence.second-equivalence", before_revision=extra_equivalence
+            )
+            write_semantic_document(root, "evidence", extra["id"], extra)
+        adr = root / "docs/adr/0001-storage.md"
+        for resolution in resolutions.values():
+            resolution["decision_authorities"][0]["content_digest"] = hashlib.sha256(
+                adr.read_bytes()
+            ).hexdigest()
+        write_continuity_evidence(
+            root,
+            "evidence.storage-continuity",
+            parent,
+            sorted(next(iter(resolutions.values()))["predecessor_fingerprints"]),
+            "source:" + digest,
+            resolutions,
+        )
+        return self.commit_current("完整精确迁移材料")
+
+    def test_same_blob_two_exact_reference_mappings_can_both_pass(self):
+        import copy
+
+        module, parent, _, resolutions, dependency, _ = self.fixture(
+            extra_reference=True
+        )
+        issues = module.continuity_snapshot(self.repository, parent)[
+            "current_reference_issues"
+        ]
+        mapping = copy.deepcopy(
+            resolutions[dependency]["historical_reference_migrations"][0]
+        )
+        second = next(i for i in issues if i["issue_id"] != mapping["issue_id"])
+        for key in mapping:
+            if key in second:
+                mapping[key] = second[key]
+        resolutions[dependency]["historical_reference_migrations"].append(mapping)
+        adr = self.repository / "docs/adr/0001-storage.md"
+        adr.write_text(adr.read_text() + "\n" + second["issue_id"] + "\n")
+        result = self.refresh_migration_materials(parent, resolutions)
+        report = self.compare(module, parent, result)
+        self.assertTrue(report["passed"], report)
+        self.assertEqual(len(report["resolved_historical_reference_migrations"]), 2)
+
+    def test_strong_consumer_requires_actual_same_role_not_approved_doc_locator(self):
+        import copy
+
+        module, parent, _, valid, dependency, _issue = self.fixture("tests/archive.py")
+        root = self.repository
+        locator = root / "tests/current_test.py"
+        locator.write_text("current_test_anchor\n")
+        # 当前canonical真实test consumer由asset的实际引用承接，不以declared标记代role。
+        assetpath = root / ".echo-semantic/assets/asset.locator.md"
+        asset = json.loads(assetpath.read_text()[4:].split("\n---\n", 1)[0])
+        asset["code_refs"] = ["tests/current_test.py#current_test_anchor"]
+        write_semantic_document(root, "assets", asset["id"], asset)
+        eqpath = root / ".echo-semantic/evidence/evidence.storage-equivalence.md"
+        eq = json.loads(eqpath.read_text()[4:].split("\n---\n", 1)[0])
+        eq["scenario_results"]["runtime"]["source_refs"] = [
+            "tests/current_test.py#current_test_anchor"
+        ]
+        write_semantic_document(root, "evidence", eq["id"], eq)
+        mapping = valid[dependency].pop("historical_reference_migrations")[0]
+        mapping.update(
+            replacement_source_ref="tests/current_test.py#current_test_anchor",
+            replacement_content_sha256=hashlib.sha256(locator.read_bytes()).hexdigest(),
+            replacement_git_mode="100644",
+        )
+        valid[dependency]["current_reference_replacements"] = [mapping]
+        adr = root / "docs/adr/0001-storage.md"
+        adr.write_text(
+            adr.read_text() + "\ntests/current_test.py#current_test_anchor\n"
+        )
+        result = self.refresh_migration_materials(parent, valid)
+        report = self.compare(module, parent, result)
+        self.assertTrue(report["passed"], report)
+        changed = copy.deepcopy(valid)
+        changed[dependency]["current_reference_replacements"][0].update(
+            replacement_source_ref="docs/index.md",
+            replacement_content_sha256=hashlib.sha256(
+                (root / "docs/index.md").read_bytes()
+            ).hexdigest(),
+        )
+        asset["code_refs"] = ["docs/index.md"]
+        write_semantic_document(root, "assets", asset["id"], asset)
+        eq["scenario_results"]["runtime"]["source_refs"] = ["docs/index.md"]
+        write_semantic_document(root, "evidence", eq["id"], eq)
+        adr.write_text(adr.read_text() + "\ndocs/index.md\n")
+        result = self.refresh_migration_materials(parent, changed)
+        report = self.compare(module, parent, result)
+        self.assertFalse(report["passed"])
+        self.assertTrue(any("角色" in e for e in report["errors"]))
+
+    def test_collision_retains_aggregate_and_every_qualified_variant(self):
+        module, _, _, _, _, _ = self.fixture()
+        root = self.repository
+        paths = ["src/same.txt#one", "docs/same.txt#two"]
+        for raw in paths:
+            path = root / raw.split("#")[0]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("one two\n")
+        observed = self.commit_current("同SHA两真实role和anchor")
+        data = {
+            "schema_version": 1,
+            "id": "evidence.same",
+            "kind": "evidence",
+            "observed_at": observed,
+            "source_refs": paths,
+            "supports": [],
+            "limitations": [],
+        }
+        write_semantic_document(root, "evidence", data["id"], data)
+        write_behavior(
+            root,
+            "behavior.same",
+            "两个真实consumer均需保全",
+            evidence_refs=[data["id"]],
+        )
+        revision = self.commit_current("歧义不得择一")
+        snapshot = module.continuity_snapshot(root, revision)
+        group = snapshot["source_dependency_collisions"][0]
+        self.assertEqual(len(group["variants"]), 2)
+        self.assertIn(group["dependency_id"], snapshot["obligations"])
+        for variant in group["variants"]:
+            self.assertIn(variant["obligation"], snapshot["obligations"])
+            self.assertEqual(
+                snapshot["obligations"][variant["obligation"]]["fingerprint"],
+                variant["fingerprint"],
+            )
+        report = module.compare_continuity(root, revision, [revision], revision)
+        self.assertFalse(report["passed"])
+        self.assertTrue(report["errors"])
+
+    def collision_fixture(self, extra_reference=False):
+        module, _, _, _, _, _ = self.fixture()
+        root = self.repository
+        original_refs = ["src/same.txt#one", "docs/same.txt#two"]
+        if extra_reference:
+            original_refs.append("src/another.txt#one")
+        for raw in original_refs:
+            path = root / raw.split("#")[0]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("one two\n")
+        observed = self.commit_current("碰撞原全部consumer")
+        data = {
+            "schema_version": 1,
+            "id": "evidence.same",
+            "kind": "evidence",
+            "observed_at": observed,
+            "source_refs": original_refs,
+            "supports": [],
+            "limitations": [],
+        }
+        write_semantic_document(root, "evidence", data["id"], data)
+        write_behavior(
+            root,
+            "behavior.same",
+            "两个真实consumer均需保全",
+            evidence_refs=[data["id"]],
+        )
+        parent = self.commit_current("真实碰撞父")
+        snapshot = module.continuity_snapshot(root, parent)
+        group = next(
+            g
+            for g in snapshot["source_dependency_collisions"]
+            if g["owner"] == "evidence.same"
+        )
+        ids = [group["dependency_id"], *[v["obligation"] for v in group["variants"]]]
+        for raw in original_refs:
+            (root / raw.split("#")[0]).unlink()
+        replacement_refs = {
+            "production_source": "src/new.txt#new_anchor",
+            "documentation": "docs/new.md#new_anchor",
+        }
+        for raw in replacement_refs.values():
+            (root / raw.split("#")[0]).write_text(
+                "new_anchor same behavior " + raw + "\n"
+            )
+        write_asset_marker(
+            root, "asset.collision", code_refs=list(replacement_refs.values())
+        )
+        data.update(
+            observed_at="source:" + source_digest(root),
+            source_refs=list(replacement_refs.values()),
+            asset_refs=["asset.collision"],
+        )
+        write_semantic_document(root, "evidence", data["id"], data)
+        # 原fixture控制材料不参与本次新的parent组。
+        adr = root / "docs/adr/0002-collision.md"
+        adr.write_text(
+            "# 碰撞迁移\n\n## 状态\n\n已批准\n\n## 背景\n\n完整保全。\n\n## 候选方案\n\n不能择一。\n\n## 决策\n\n"
+            + "\n".join(
+                [
+                    group["collision_id"],
+                    group["owner"],
+                    parent,
+                    *ids,
+                    *replacement_refs.values(),
+                ]
+            )
+            + "\n理由：全部consumer等价承接。\n\n## 影响\n\n兼容：原语义保留。回滚：恢复原refs。\n"
+        )
+        write_equivalence(
+            root,
+            "evidence.collision-equivalence",
+            ids + ["asset.collision", "evidence.same"],
+            before_revision=parent,
+            source_ref="src/new.txt#new_anchor",
+        )
+        eqpath = root / ".echo-semantic/evidence/evidence.collision-equivalence.md"
+        eq = json.loads(eqpath.read_text()[4:].split("\n---\n", 1)[0])
+        eq["scenario_results"]["runtime"]["source_refs"] = list(
+            replacement_refs.values()
+        )
+        write_semantic_document(root, "evidence", eq["id"], eq)
+        digest = source_digest(root)
+        resolutions = {}
+        for identifier in ["evidence.same", *ids]:
+            resolutions[identifier] = {
+                "disposition": "resolved_conflict"
+                if identifier in {"evidence.same", group["dependency_id"]}
+                else "replaced",
+                "predecessor_fingerprints": {
+                    parent: snapshot["obligations"][identifier]["fingerprint"]
+                },
+                "replacement_ref": "asset.collision",
+                "evidence_refs": [eq["id"]],
+                "decision_authorities": [
+                    {
+                        "kind": "adr",
+                        "path": "docs/adr/0002-collision.md",
+                        "content_digest": hashlib.sha256(adr.read_bytes()).hexdigest(),
+                    }
+                ],
+                "compatibility_impact": "保全部原角色行为",
+                "rollback_ref": parent,
+            }
+        for variant in group["variants"]:
+            raw = replacement_refs[variant["source_role"]]
+            mappings = []
+            for ref in variant["references"]:
+                mappings.append(
+                    {
+                        "snapshot_revision": parent,
+                        "collision_id": group["collision_id"],
+                        "variant_obligation": variant["obligation"],
+                        "variant_fingerprint": variant["fingerprint"],
+                        "raw_reference": ref["raw_reference"],
+                        "source_role": variant["source_role"],
+                        "replacement_ref": "asset.collision",
+                        "replacement_source_ref": raw,
+                        "replacement_content_sha256": hashlib.sha256(
+                            (root / raw.split("#")[0]).read_bytes()
+                        ).hexdigest(),
+                        "replacement_git_mode": "100644",
+                        "equivalence_evidence_ref": eq["id"],
+                        "scenario": "runtime",
+                    }
+                )
+            resolutions[variant["obligation"]][
+                "source_dependency_variant_replacements"
+            ] = mappings
+        write_continuity_evidence(
+            root,
+            "evidence.collision-continuity",
+            parent,
+            [parent],
+            "source:" + digest,
+            resolutions,
+        )
+        result = self.commit_current("完整碰撞迁移")
+        return module, parent, result, resolutions, group
+
+    def rewrite_collision(self, parent, resolutions):
+        write_continuity_evidence(
+            self.repository,
+            "evidence.collision-continuity",
+            parent,
+            [parent],
+            "source:" + source_digest(self.repository),
+            resolutions,
+        )
+        return self.commit_current("碰撞精确单变量反例")
+
+    def test_complete_collision_replacements_pass_but_each_missing_variant_blocks(self):
+        import copy
+
+        module, parent, result, valid, group = self.collision_fixture()
+        report = self.compare(module, parent, result)
+        self.assertTrue(report["passed"], report)
+        self.assertEqual(len(report["resolved_source_dependency_collisions"]), 1)
+        for variant in group["variants"]:
+            with self.subTest(variant=variant["obligation"]):
+                altered = copy.deepcopy(valid)
+                altered.pop(variant["obligation"])
+                result = self.rewrite_collision(parent, altered)
+                self.assertFalse(self.compare(module, parent, result)["passed"])
+
+    def test_approved_equivalence_cannot_replace_production_variant_with_doc_locator(
+        self,
+    ):
+        module, parent, _, valid, group = self.collision_fixture()
+        variant = next(
+            v for v in group["variants"] if v["source_role"] == "production_source"
+        )
+        mapping = valid[variant["obligation"]][
+            "source_dependency_variant_replacements"
+        ][0]
+        mapping["replacement_source_ref"] = "docs/new.md#new_anchor"
+        mapping["replacement_content_sha256"] = hashlib.sha256(
+            (self.repository / "docs/new.md").read_bytes()
+        ).hexdigest()
+        result = self.rewrite_collision(parent, valid)
+        report = self.compare(module, parent, result)
+        self.assertFalse(report["passed"])
+        self.assertTrue(any("角色" in e for e in report["errors"]))
+
+    def test_collision_every_raw_reference_is_required(self):
+        import copy
+
+        module, parent, result, valid, group = self.collision_fixture(
+            extra_reference=True
+        )
+        self.assertTrue(self.compare(module, parent, result)["passed"])
+        variant = next(v for v in group["variants"] if len(v["references"]) == 2)
+        altered = copy.deepcopy(valid)
+        altered[variant["obligation"]]["source_dependency_variant_replacements"].pop()
+        report = self.compare(module, parent, self.rewrite_collision(parent, altered))
+        self.assertFalse(report["passed"])
+        self.assertTrue(any("每个原rawref" in e for e in report["errors"]))
+
+    def test_collision_bound_fields_and_authority_cannot_be_forged(self):
+        import copy
+
+        module, parent, _, valid, group = self.collision_fixture()
+        variant_id = group["variants"][0]["obligation"]
+        variants = {
+            "wrong_fp": lambda r: r[variant_id][
+                "source_dependency_variant_replacements"
+            ][0].update(variant_fingerprint="f" * 64),
+            "wrong_current_sha": lambda r: r[variant_id][
+                "source_dependency_variant_replacements"
+            ][0].update(replacement_content_sha256="f" * 64),
+            "wrong_current_mode": lambda r: r[variant_id][
+                "source_dependency_variant_replacements"
+            ][0].update(replacement_git_mode="100755"),
+            "wrong_anchor": lambda r: r[variant_id][
+                "source_dependency_variant_replacements"
+            ][0].update(replacement_source_ref="src/new.txt#missing_anchor"),
+            "wrong_scenario": lambda r: r[variant_id][
+                "source_dependency_variant_replacements"
+            ][0].update(scenario="not_matched"),
+            "missing_adr": lambda r: r[variant_id].update(decision_authorities=[]),
+            "wrong_parent": lambda r: r[variant_id]["predecessor_fingerprints"].update(
+                {parent: "f" * 64}
+            ),
+            "unknown_field": lambda r: r[variant_id][
+                "source_dependency_variant_replacements"
+            ][0].update(source_rol="documentation"),
+        }
+        for name, alter in variants.items():
+            with self.subTest(name=name):
+                changed = copy.deepcopy(valid)
+                alter(changed)
+                result = self.rewrite_collision(parent, changed)
+                self.assertFalse(self.compare(module, parent, result)["passed"], name)
+
+    def test_noncollision_missing_dependency_cannot_use_aggregate_conflict_exception(
+        self,
+    ):
+        module, parent, _, valid, dependency, _ = self.fixture()
+        valid[dependency]["disposition"] = "resolved_conflict"
+        result = self.rewrite(module, parent, valid)
+        report = self.compare(module, parent, result)
+        row = next(r for r in report["results"] if r["obligation"] == dependency)
+        self.assertEqual(row["status"], "unknown")
+        self.assertTrue(
+            any("disposition 不能处理" in reason for reason in row["reasons"])
+        )
+        self.assertFalse(report["passed"])
+
+    def test_collision_mapping_cannot_be_copied_to_preserved_or_absent_resolution(self):
+        import copy
+
+        module, parent, _, valid, group = self.collision_fixture()
+        for unrelated in ["behavior.runtime", "behavior.never-existed"]:
+            with self.subTest(unrelated=unrelated):
+                altered = copy.deepcopy(valid)
+                variant_id = group["variants"][0]["obligation"]
+                altered[unrelated] = copy.deepcopy(altered[variant_id])
+                parent_obligation = module.continuity_snapshot(self.repository, parent)[
+                    "obligations"
+                ].get(unrelated)
+                altered[unrelated]["predecessor_fingerprints"] = {
+                    parent: parent_obligation["fingerprint"]
+                    if parent_obligation is not None
+                    else "absent"
+                }
+                report = self.compare(
+                    module, parent, self.rewrite_collision(parent, altered)
+                )
+                self.assertFalse(report["passed"], unrelated)
+                self.assertTrue(any("碰撞映射" in e for e in report["errors"]))
+
+    def test_normal_single_variant_identity_and_fingerprint_match_original_formula(
+        self,
+    ):
+        module, parent, _, _, dependency, _ = self.fixture()
+        snapshot = module.continuity_snapshot(self.repository, parent)
+        expected = hashlib.sha256(
+            json.dumps(
+                {
+                    "content_digest": dependency.split("#source:")[1],
+                    "anchor": None,
+                    "git_mode": "100644",
+                    "role": "documentation",
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        self.assertEqual(snapshot["obligations"][dependency]["fingerprint"], expected)
+        self.assertFalse(snapshot["source_dependency_collisions"])
+        self.assertFalse(any("#variant:" in k for k in snapshot["obligations"]))
+
+    def test_two_real_parents_need_both_fingerprints_and_equivalence(self):
+        import copy
+
+        module, parent, _, resolutions, dependency, _ = self.fixture()
+        root = self.repository
+        # 第二真实父只改变旧Evidence语义范围，源树和历史raw保持相同。
+        original = json.loads(
+            git(
+                root, "show", parent + ":.echo-semantic/evidence/evidence.original.md"
+            ).split("\n---\n", 1)[0][4:]
+        )
+        original["limitations"].append("第二父的额外原限制仍须保留")
+        oldtree = git(root, "rev-parse", "HEAD")
+        git(root, "switch", "-qc", "second-historical-parent", parent)
+        write_semantic_document(root, "evidence", "evidence.original", original)
+        second = self.commit_current("第二真实历史父")
+        second_snapshot = module.continuity_snapshot(root, second)
+        git(root, "checkout", "--detach", oldtree)
+        first_snapshot = module.continuity_snapshot(root, parent)
+        for identifier, resolution in resolutions.items():
+            resolution["predecessor_fingerprints"] = {
+                r: snap["obligations"][identifier]["fingerprint"]
+                for r, snap in [(parent, first_snapshot), (second, second_snapshot)]
+            }
+            resolution["evidence_refs"].append("evidence.second-equivalence")
+        issue = second_snapshot["current_reference_issues"][0]
+        mapping = copy.deepcopy(
+            resolutions[dependency]["historical_reference_migrations"][0]
+        )
+        for key in mapping:
+            if key in issue:
+                mapping[key] = issue[key]
+        mapping["equivalence_evidence_ref"] = "evidence.second-equivalence"
+        resolutions[dependency]["historical_reference_migrations"].append(mapping)
+        adr = root / "docs/adr/0001-storage.md"
+        adr.write_text(
+            adr.read_text() + "\n" + second + "\n" + issue["issue_id"] + "\n"
+        )
+        result = self.refresh_migration_materials(
+            parent, resolutions, extra_equivalence=second
+        )
+        report = module.compare_continuity(root, parent, [parent, second], result)
+        self.assertTrue(report["passed"], report)
+        for resolution in resolutions.values():
+            resolution["evidence_refs"].remove("evidence.second-equivalence")
+        result = self.refresh_migration_materials(parent, resolutions)
+        report = module.compare_continuity(root, parent, [parent, second], result)
+        self.assertFalse(report["passed"])
+        self.assertTrue(
+            any(
+                "全部不同父版本指纹" in reason
+                for row in report["results"]
+                for reason in row["reasons"]
+            )
+        )
+
+    def test_current_reference_collision_same_sha_different_anchor_mode_or_role(self):
+        module, _parent, _, _, _, _ = self.fixture()
+        root = self.repository
+        for case, refs in [
+            ("anchor", ["docs/left.log#one", "docs/right.log#two"]),
+            ("mode", ["docs/left.log", "docs/right.log"]),
+            ("role", ["docs/left.log", "docs/tests/right.log"]),
+        ]:
+            with self.subTest(case=case):
+                paths = [r.split("#", 1)[0] for r in refs]
+                for relative in paths:
+                    path = root / relative
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text("one two\n")
+                if case == "mode":
+                    (root / paths[1]).chmod(0o755)
+                observed = self.commit_current("相同内容异引用 " + case)
+                evidence = {
+                    "schema_version": 1,
+                    "id": "evidence.collision",
+                    "kind": "evidence",
+                    "observed_at": observed,
+                    "source_refs": refs,
+                    "supports": [],
+                    "limitations": [],
+                }
+                write_semantic_document(
+                    root, "evidence", "evidence.collision", evidence
+                )
+                write_behavior(
+                    root,
+                    "behavior.collision",
+                    "碰撞不得静默覆盖",
+                    evidence_refs=["evidence.collision"],
+                )
+                revision = self.commit_current("当前相同SHA异引用 " + case)
+                snapshot = module.continuity_snapshot(root, revision)
+                self.assertTrue(
+                    any("源码依赖身份冲突" in e for e in snapshot["errors"])
+                )
+                for relative in paths:
+                    (root / relative).unlink()
+                revision = self.commit_current("历史同SHA异引用 " + case)
+                snapshot = module.continuity_snapshot(root, revision)
+                self.assertTrue(
+                    any("源码依赖身份冲突" in e for e in snapshot["errors"])
+                )
+
+    def test_same_cached_snapshot_as_result_remains_fatal(self):
+        module, parent, _, _, _, _ = self.fixture()
+        report = self.compare(module, parent, parent)
+        self.assertFalse(report["passed"])
+        self.assertEqual(len(report["snapshot_diagnostics"]), 3)
+        self.assertEqual(
+            {r["snapshot_role"] for r in report["snapshot_diagnostics"]},
+            {"merge_base", "predecessor", "result"},
+        )
+        self.assertTrue(report["errors"])
+
+    def test_control_evidence_current_references_cannot_use_historical_escape(self):
+        module, parent, _, valid, _, _ = self.fixture()
+        root = self.repository
+        path = root / ".echo-semantic/evidence/evidence.storage-equivalence.md"
+        data = json.loads(path.read_text()[4:].split("\n---\n", 1)[0])
+        historical = json.loads(
+            git(root, "show", parent + ":.echo-semantic/evidence/evidence.original.md")[
+                4:
+            ].split("\n---\n", 1)[0]
+        )["observed_at"]
+        data.update(observed_at=historical, source_refs=["docs/archive.log"])
+        write_semantic_document(root, "evidence", data["id"], data)
+        result = self.rewrite(module, parent, valid)
+        report = self.compare(module, parent, result)
+        self.assertFalse(report["passed"])
+        self.assertTrue(
+            any(
+                "采用的迁移控制Evidence当前引用缺失" in reason
+                for row in report["results"]
+                for reason in row["reasons"]
+            )
+        )
+
+    def test_unused_historical_control_evidence_retains_historical_observation(self):
+        module, parent, _, valid, _, _ = self.fixture()
+        root = self.repository
+        historical = json.loads(
+            git(root, "show", parent + ":.echo-semantic/evidence/evidence.original.md")[
+                4:
+            ].split("\n---\n", 1)[0]
+        )["observed_at"]
+        for original_id in [
+            "evidence.storage-equivalence",
+            "evidence.storage-continuity",
+        ]:
+            path = root / ".echo-semantic/evidence" / (original_id + ".md")
+            data = json.loads(path.read_text()[4:].split("\n---\n", 1)[0])
+            data.update(
+                id=original_id + "-historical",
+                observed_at=historical,
+                source_refs=["docs/archive.log"],
+            )
+            if data["evidence_type"] == "behavior_equivalence":
+                data["scenario_results"]["runtime"]["source_refs"] = [
+                    "docs/archive.log"
+                ]
+            if data["evidence_type"] == "semantic_continuity":
+                data["result_snapshot"] = "source:" + "1" * 64
+                for resolution in data["resolutions"].values():
+                    resolution.pop("historical_reference_migrations", None)
+            write_semantic_document(root, "evidence", data["id"], data)
+        result = self.rewrite(module, parent, valid)
+        report = self.compare(module, parent, result)
+        self.assertTrue(report["passed"], report)
+
+    def test_preserved_fastpath_still_validates_attached_migration(self):
+        import copy
+
+        module, parent, _, valid, dependency, _ = self.fixture()
+        altered = copy.deepcopy(valid)
+        # 原behavior保持同指纹，不能因preserved跳过其非法storage mapping。
+        altered["behavior.runtime"] = copy.deepcopy(altered[dependency])
+        altered.pop(dependency)
+        altered["behavior.runtime"]["predecessor_fingerprints"] = {
+            parent: module.continuity_snapshot(self.repository, parent)["obligations"][
+                "behavior.runtime"
+            ]["fingerprint"]
+        }
+        result = self.rewrite(module, parent, altered)
+        report = self.compare(module, parent, result)
+        row = next(
+            r for r in report["results"] if r["obligation"] == "behavior.runtime"
+        )
+        self.assertEqual(row["status"], "preserved")
+        self.assertFalse(report["passed"])
+        self.assertTrue(any("未绑定原依赖义务" in e for e in report["errors"]))
+
+    def test_wrong_after_digest_unmatched_equivalence_and_unapproved_adr_block(self):
+        import copy
+
+        module, parent, _, valid, _, _ = self.fixture()
+        root = self.repository
+        eqpath = root / ".echo-semantic/evidence/evidence.storage-equivalence.md"
+        original_eq = json.loads(eqpath.read_text()[4:].split("\n---\n", 1)[0])
+        for field, value in [
+            ("after_revision", "source:" + "f" * 64),
+            (
+                "scenario_results",
+                {"runtime": {"status": "failed", "source_refs": ["docs/index.md"]}},
+            ),
+        ]:
+            with self.subTest(field=field):
+                data = copy.deepcopy(original_eq)
+                data[field] = value
+                write_semantic_document(root, "evidence", data["id"], data)
+                result = self.rewrite(module, parent, valid)
+                self.assertFalse(self.compare(module, parent, result)["passed"])
+        write_semantic_document(root, "evidence", original_eq["id"], original_eq)
+        adr = root / "docs/adr/0001-storage.md"
+        adr.write_text(adr.read_text().replace("已批准", "未批准"))
+        altered = copy.deepcopy(valid)
+        for resolution in altered.values():
+            resolution["decision_authorities"][0]["content_digest"] = hashlib.sha256(
+                adr.read_bytes()
+            ).hexdigest()
+        result = self.rewrite(module, parent, altered)
+        self.assertFalse(self.compare(module, parent, result)["passed"])
+
+
 if __name__ == "__main__":
     unittest.main()

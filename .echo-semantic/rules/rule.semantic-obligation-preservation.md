@@ -42,3 +42,8 @@ finding_refs: []
 ## 裁决记录
 
 退役和双侧冲突解决必须绑定人的 design/ADR 摘要、兼容影响与回滚方式。
+
+
+## 原件与当前依赖
+
+历史观察必须真实可恢复；Audit缺省revision只回退其顶层，不把显式空值回退。结果采用的迁移控制Evidence须有真实current引用，未采用的历史控制材料仍按原观察读取。历史存储resolution精确绑定issue、父指纹、原blob/mode/锚/角色、原/替义务、matched场景与正式批准authority；父文稿之外的错误不因存储迁移而放过。
