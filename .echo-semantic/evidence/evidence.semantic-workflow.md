@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.semantic-workflow
 kind: evidence
-observed_at: source:dc28a20c48961826c028d86b3b6bcef6c0951ac085fec34fc2ee936bf8270380
+observed_at: source:96aba3950a3dee69d2ed1063ed5de6251c177c6efb579b66082caad30599251a
 source_refs:
   - skills/semantic-contract/SKILL.md#语义材料合同
   - skills/semantic-contract/references/semantic-artifact-contract.md#语义材料合同
@@ -20,6 +20,10 @@ source_refs:
   - README.md#架构总览
   - docs/supreme/specs/plugin-architecture/design.md#系统边界
   - skills/semantic-contract/scripts/verify_semantic.py#compare_continuity
+  - skills/semantic-contract/scripts/verify_semantic.py#run_git
+  - skills/semantic-contract/scripts/verify_semantic.py#added_lines
+  - tests/test_binary_diff.py#BinaryDiffTests
+  - docs/command-reference.md#非 UTF-8 差异与风险识别
 supports:
   [behavior.preflight-before-write, behavior.semantic-continuity, rule.single-semantic-authority, rule.semantic-obligation-preservation]
 limitations:
@@ -40,3 +44,9 @@ limitations:
 ## 已知缺口
 
 触发描述只能作为软发现，需要 Hook 和 CI 提供确定性约束。
+
+## 本次输入修复的影响闭包
+
+首个差异相对 public 8ecb51f9119a96ac9fa09ffc500f1a3dea299fdb 只改变已有 Git 文本解码，不新增状态权威、公共参数、宿主 Hook 或协议。
+风险识别和 `validate_change_evidence` 继续使用同一个入口；连续性 Git blob 分支、摘要、缺失源码和原错误传播规则均保留。
+六项反例回归及仓库 `npm test`、`npm run verify` 门禁分别提供输入行为与完整工程证据；失败结果保持失败，不以路径排除或修改负例文件取绿。

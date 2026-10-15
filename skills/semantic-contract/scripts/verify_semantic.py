@@ -341,6 +341,9 @@ def run_git(root: Path, *args: str, binary: bool = False) -> bytes | str:
         check=False,
         capture_output=True,
         text=not binary,
+        # 普通 diff 可含原文件的非 UTF-8 字节，保留它们并继续识别文本风险信号。
+        encoding=None if binary else "utf-8",
+        errors=None if binary else "surrogateescape",
     )
     if result.returncode != 0:
         stderr = (
@@ -2709,7 +2712,9 @@ def added_lines(root: Path, base: str, relative: str) -> list[str]:
         tracked = False
     if not tracked and path.is_file():
         try:
-            return path.read_text(encoding="utf-8").splitlines()
+            return path.read_text(
+                encoding="utf-8", errors="surrogateescape"
+            ).splitlines()
         except (OSError, UnicodeError):
             return []
     try:

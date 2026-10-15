@@ -57,6 +57,13 @@ node runtime/route.mjs \
 `hookEvidence`。没有明确任务且没有工作树变化时为 `maintenance`；明确任务通过有效预检后按任务范围路由。手工运行不会伪造 Hook 事件证据。
 路由结果同时写入目标仓库 `.echo-semantic/route.json`，并更新 `status.md` 和 `status.json`。
 
+## 非 UTF-8 差异与风险识别
+
+校验器的普通 Git 文本读取使用 UTF-8 `surrogateescape` 保留原字节；未跟踪文件的新增行采用相同规则。原文件包含非法 UTF-8 时，
+差异仍参与路径和风险标记检查，不会因替换字符或忽略解码错误而隐藏相邻的公开接口、状态权威或协议变化。
+`binary=True` 的 Git blob 读取仍返回原始 `bytes`，真正的二进制 diff 仍保留变更路径和协议义务；Git 命令失败仍返回非零。
+该处理不修改项目文件、不改变正式语义材料的 UTF-8 要求，也不豁免任何路径或验证依据。
+
 ## 语义连续性门禁
 
 比较共同基准、一个或多个前置版本与候选结果：
