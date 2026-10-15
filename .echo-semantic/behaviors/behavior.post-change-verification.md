@@ -8,12 +8,15 @@ risk: high
 primary_focus: failure_concurrency
 focus: [contract_evidence, time_lifecycle]
 boundary: boundary.lifecycle-enforcement
-observed_at: source:dc28a20c48961826c028d86b3b6bcef6c0951ac085fec34fc2ee936bf8270380
+observed_at: d56cd134b824c05ae00566d1262fc743da7318c2
 code_refs:
   - hooks/entry.mjs#function stop
   - hooks/entry.mjs#function deny
   - hooks/entry.mjs#function isCursorEditTool
   - skills/semantic-contract/scripts/verify_semantic.py#validate_change_evidence
+  - skills/semantic-contract/scripts/verify_semantic.py#run_git
+  - skills/semantic-contract/scripts/verify_semantic.py#added_lines
+  - tests/test_binary_diff.py#BinaryDiffTests
   - action.yml#执行语义治理门禁
   - runtime/route.mjs#computeRoute
   - runtime/continuation.mjs#writeContinuation
@@ -44,6 +47,12 @@ Cursor 停止失败只发送 `followup_message` 且退出码 0，不能阻断会
 
 Claude Code 与 Cursor 在编辑前触发路径检查，三个宿主在停止前验证；只读取仓库与 `.echo-semantic/` 运行态。
 Codex 与 Claude Code 失败时阻断当前动作；Cursor 编辑前用 `permission: deny` 阻断，停止失败只能追加 followup。
+
+## 非 UTF-8 输入边界
+
+普通 diff 和未跟踪源码通过可逆 `surrogateescape` 保留非法 UTF-8 字节，继续识别其相邻公开接口、状态权威和协议风险。
+显式二进制读取保留 `bytes`，二进制差异保留路径义务；不替换、不忽略、不改写项目原文件，Git 失败仍报错。
+`tests/test_binary_diff.py` 的六个具名回归覆盖这条增量边界；这不是新的宿主 Hook 实测或整项目行为复审。
 
 ## 失败、重试与恢复
 

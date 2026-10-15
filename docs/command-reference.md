@@ -57,6 +57,13 @@ node runtime/route.mjs \
 `hookEvidence`。没有明确任务且没有工作树变化时为 `maintenance`；明确任务通过有效预检后按任务范围路由。手工运行不会伪造 Hook 事件证据。
 路由结果同时写入目标仓库 `.echo-semantic/route.json`，并更新 `status.md` 和 `status.json`。
 
+## 非 UTF-8 差异与风险识别
+
+校验器的普通 Git 文本读取使用 UTF-8 `surrogateescape` 保留原字节；未跟踪文件的新增行采用相同规则。原文件包含非法 UTF-8 时，
+差异仍参与路径和风险标记检查，不会因替换字符或忽略解码错误而隐藏相邻的公开接口、状态权威或协议变化。
+`binary=True` 的 Git blob 读取仍返回原始 `bytes`，真正的二进制 diff 仍保留变更路径和协议义务；Git 命令失败仍返回非零。
+该处理不修改项目文件、不改变正式语义材料的 UTF-8 要求，也不豁免任何路径或验证依据。
+
 ## 语义连续性门禁
 
 比较共同基准、一个或多个前置版本与候选结果：
@@ -242,3 +249,9 @@ npm run verify
 ```
 
 `.echo-semantic/` 中的长期语义 Markdown 正常提交；上述 5 个运行态文件由插件写入 `.git/info/exclude`，不进入提交。
+
+## 插件仓库 CI 的 uv 缓存依据
+
+本仓库 CI 的 `setup-uv` 缓存失效键显式匹配 `package.json` 和 `skills/semantic-contract/scripts/verify_semantic.py`：
+前者保存 npm 验证脚本与 uvx Ruff 版本，后者的 PEP 723 头保存 PyYAML 依赖。默认 requirements/uv.lock glob 在本仓库没有对应文件，
+不能作为缓存依赖依据。此设置只绑定缓存失效来源，不关闭缓存、测试或原始警告输出；实际 CI 结论仍以相应提交的完整日志为准。

@@ -8,7 +8,7 @@ risk: high
 primary_focus: state_authority
 focus: [contract_evidence, failure_concurrency]
 boundary: boundary.semantic-consolidation
-observed_at: source:dc28a20c48961826c028d86b3b6bcef6c0951ac085fec34fc2ee936bf8270380
+observed_at: 8ecb51f9119a96ac9fa09ffc500f1a3dea299fdb
 code_refs:
   - runtime/route.mjs#computeRoute
   - skills/semantic-discover/scripts/inventory.py#scan

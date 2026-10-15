@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.lifecycle-hooks
 kind: evidence
-observed_at: source:dc28a20c48961826c028d86b3b6bcef6c0951ac085fec34fc2ee936bf8270380
+observed_at: d56cd134b824c05ae00566d1262fc743da7318c2
 source_refs:
   - hooks/hooks.json#SessionStart
   - hooks/plugin-entry.mjs#function run
@@ -25,6 +25,9 @@ source_refs:
   - tests/project-state.test.mjs#拒绝通过符号链接写出项目目录
   - tests/project-state.test.mjs#拒绝覆盖已被 Git 跟踪的运行态文件
   - skills/semantic-contract/scripts/verify_semantic.py#run_self_test
+  - skills/semantic-contract/scripts/verify_semantic.py#run_git
+  - skills/semantic-contract/scripts/verify_semantic.py#added_lines
+  - tests/test_binary_diff.py#BinaryDiffTests
   - docs/supreme/specs/plugin-architecture/design.md#宿主生命周期时序
 supports:
   [
@@ -51,3 +54,10 @@ PreCompact 会保存带证据摘要的恢复包，resume 只恢复仍可信的�
 ## 已知缺口
 
 Cursor 已完成安装清单、本地插件路径和窗口级手工检查；完整生命周期事件仍需按版本记录。
+
+## 无损差异解码回归
+
+2026-10-15 的有界修复复用 `skills/semantic-contract/scripts/verify_semantic.py` 中 `run_git`、`added_lines` 和原 `infer_signals`，
+只为文本读取增加可逆 `surrogateescape`。`tests/test_binary_diff.py` 六项具名测试验证 tracked/untracked 非 UTF-8 字节原样回编码、
+相邻公开接口和状态风险不丢失、中文 emoji 路径不变、二进制协议路径仍受约束、显式 blob 保持 bytes，以及 Git 错误仍抛出。
+原公共版本基线为 8ecb51f9119a96ac9fa09ffc500f1a3dea299fdb；这是校验器输入与风险证据修复，不宣称新会话或 GUI 重载 Hook 已验收。
