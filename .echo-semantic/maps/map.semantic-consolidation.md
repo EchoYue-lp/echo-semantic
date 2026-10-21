@@ -4,7 +4,7 @@ id: map.semantic-consolidation
 kind: capability_map
 title: 老项目语义资产整合
 risk: high
-observed_at: source:e2f030c43982a0e5bdc363e45ef67e8cc189d9cdd59552c89dd647c8cc5fb97e
+observed_at: source:323d9d10e27ceb3a901d3b923bb58982aa6efcc4cbf919bfab17ad0abbd0ec18
 boundary_refs: [boundary.semantic-consolidation]
 behavior_refs: [behavior.semantic-consolidation]
 rule_refs: [rule.single-semantic-authority]

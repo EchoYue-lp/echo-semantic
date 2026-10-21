@@ -8,7 +8,7 @@ risk: high
 primary_focus: failure_concurrency
 focus: [contract_evidence, time_lifecycle]
 boundary: boundary.lifecycle-enforcement
-observed_at: source:e2f030c43982a0e5bdc363e45ef67e8cc189d9cdd59552c89dd647c8cc5fb97e
+observed_at: source:323d9d10e27ceb3a901d3b923bb58982aa6efcc4cbf919bfab17ad0abbd0ec18
 code_refs:
   - hooks/entry.mjs#checkpointBinding
   - tests/native-hook-binding.test.mjs#checkpointFixture

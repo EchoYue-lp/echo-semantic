@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.lifecycle-hooks
 kind: evidence
-observed_at: source:e2f030c43982a0e5bdc363e45ef67e8cc189d9cdd59552c89dd647c8cc5fb97e
+observed_at: source:323d9d10e27ceb3a901d3b923bb58982aa6efcc4cbf919bfab17ad0abbd0ec18
 source_refs:
   - hooks/entry.mjs#observationRecovery
   - tests/native-hook-binding.test.mjs#Stop无起始观察保留未归属任务并只读结束
@@ -145,3 +145,11 @@ pending 拒写反馈给出实际仓库、原生会话及官方 inspect 参数和
 只为文本读取增加可逆 `surrogateescape`。`tests/test_binary_diff.py` 六项具名测试验证 tracked/untracked 非 UTF-8 字节原样回编码、
 相邻公开接口和状态风险不丢失、中文 emoji 路径不变、二进制协议路径仍受约束、显式 blob 保持 bytes，以及 Git 错误仍抛出。
 原公共版本基线为 8ecb51f9119a96ac9fa09ffc500f1a3dea299fdb；这是校验器输入与风险证据修复，不宣称新会话或 GUI 重载 Hook 已验收。
+
+## 历史引用 Hook 回放的 CI 环境隔离
+
+2026-10-21，`main@8c3f3b95b2d625f14b1b26a1f4faa47bc7f739b8` 的 Main CI 中 Node 146 项通过，Python 149 项仅两项历史收据 Hook 回放失败。原 Python 夹具使用实际 Codex 探针；CI 没有 Codex 版本，首次 Stop 后的收据重用被生产门禁拒绝。失败运行是 GitHub Actions `39573501367`，不表示历史内容漂移检查失效。
+
+本机以 PATH 前置的 `codex` 返回失败复现相同两项失败；修复后同环境两项通过。夹具复用既有 Node 测试的宿主替身模式，在自身临时 Git 目录内提供 `codex` 命令，并只向 Hook 子进程传递显式 PATH。生产 `detected/version` 要求、真实 Git 历史读取、首次及正常重入成功、历史漂移或旧收据缺字段后拒绝的断言均保留。Node 的版本仅作夹具宿主身份，不是实际 Codex 版本或原生宿主验收。
+
+原件位于 `.echo-semantic/local/ci-history-hook-host-probe-01a1442d/` 的 `missing-host-red.log`、`missing-host-green.log` 与后续工程检查日志，仅当前工作区可用。完整工程、远端 CI 及安装验收按各自实际结果报告。

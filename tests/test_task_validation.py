@@ -208,7 +208,7 @@ print(json.dumps(report))
 
 
 HISTORICAL_REFERENCE_FIXTURE = r"""
-import hashlib,importlib.util,json,subprocess,sys,tempfile
+import hashlib,importlib.util,json,os,shutil,subprocess,sys,tempfile
 from pathlib import Path
 spec=importlib.util.spec_from_file_location('verifier',sys.argv[1])
 v=importlib.util.module_from_spec(spec);spec.loader.exec_module(v)
@@ -272,9 +272,16 @@ with tempfile.TemporaryDirectory(prefix='echo-task-history-') as temporary:
     for item in evidence:command+=['--evidence',item]
     if scenario.startswith('task_hook_'):
         hook=Path(sys.argv[1]).parents[3]/'hooks/entry.mjs'
+        # 只给Hook子进程提供宿主探针替身，不依赖本机安装Codex。
+        host_bin=root/'.git/fixture-host';host_bin.mkdir()
+        host_command=host_bin/('codex.exe' if os.name=='nt' else 'codex')
+        node=shutil.which('node');assert node,'测试需要Node可执行文件'
+        if os.name=='nt':shutil.copyfile(node,host_command)
+        else:host_command.symlink_to(Path(node).resolve())
+        hook_environment={**os.environ,'PATH':str(host_bin)+os.pathsep+os.environ.get('PATH','')}
         def invoke(event,extra=None):
             data={'cwd':str(root),'session_id':'history-hook','source':'startup'};data.update(extra or {})
-            return subprocess.run(['node',str(hook),'codex',event],cwd=root,input=json.dumps(data),text=True,capture_output=True)
+            return subprocess.run(['node',str(hook),'codex',event],cwd=root,input=json.dumps(data),text=True,capture_output=True,env=hook_environment)
         started=invoke('session-start');assert started.returncode==0,started.stderr
     recorded=subprocess.run(command,capture_output=True,text=True)
     assert recorded.returncode==0,recorded.stdout+recorded.stderr

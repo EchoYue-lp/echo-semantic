@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.semantic-continuity
 kind: evidence
-observed_at: source:e2f030c43982a0e5bdc363e45ef67e8cc189d9cdd59552c89dd647c8cc5fb97e
+observed_at: source:323d9d10e27ceb3a901d3b923bb58982aa6efcc4cbf919bfab17ad0abbd0ec18
 source_refs:
   - skills/semantic-contract/scripts/verify_semantic.py#source_digest_at_revision
   - skills/semantic-contract/scripts/verify_semantic.py#extract_obligations
