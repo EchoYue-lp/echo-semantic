@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.lifecycle-hooks
 kind: evidence
-observed_at: source:4aee3f15c46918de495f7bfe0a3f4c45ddd24af4d2875cbb000e6becb5766912
+observed_at: source:e2f030c43982a0e5bdc363e45ef67e8cc189d9cdd59552c89dd647c8cc5fb97e
 source_refs:
   - hooks/entry.mjs#observationRecovery
   - tests/native-hook-binding.test.mjs#Stop无起始观察保留未归属任务并只读结束
@@ -60,6 +60,9 @@ source_refs:
   - tests/route.test.mjs#子模块目录竞态不能重新授权仓外根
   - tests/route.test.mjs#路由预检读取拒绝仓外 symlink 即使没有 taskId
   - skills/semantic-contract/scripts/verify_semantic.py#run_self_test
+  - skills/semantic-contract/scripts/verify_semantic.py#run_git
+  - skills/semantic-contract/scripts/verify_semantic.py#added_lines
+  - tests/test_binary_diff.py#BinaryDiffTests
   - docs/supreme/specs/plugin-architecture/design.md#宿主生命周期时序
 supports:
   [
@@ -78,6 +81,8 @@ limitations:
 ---
 
 # 生命周期门禁证据
+
+当前header用于合并后引用核对；下列各日期与隔离候选段落保留原执行身份，其“当前/本轮”、安装状态和测试数属于原任务。原Git/source观察见evidence.semantic-continuity的历史身份表，不由新摘要推导为本次原生Hook或采用方验收。
 
 本地 native-hook-binding-fix 修复的正式回归位于 tests/native-hook-binding.test.mjs，覆盖 Codex/Claude 环境别名、父工作根与独立子 Git 根、会话缺失/不一致、跨根补丁、dirty 接管保护及 Stop 完成验证。原始运行结果存于忽略目录 .echo-semantic/local/native-hook-binding-fix/，仅当前工作区可用。本机 Codex 0.162.0-alpha.17.2 内嵌 schema 确认 session_id/cwd/turn_id 和 fork；官方网页本轮不可访问。夹具结果与原生事件验收分别报告，不据此声称 CLI/SDK 原现场恢复。
 
@@ -133,3 +138,10 @@ Cursor 已完成安装清单、本地插件路径和窗口级手工检查；完�
 pending 拒写反馈给出实际仓库、原生会话及官方 inspect 参数和可执行的 POSIX 命令，要求展示 presentation、必要时正规 refresh、使用宿主可用提问工具询问，或在正文直接提问后等待明确答复。unknown 观察只提供诊断，禁止用空或旧指纹裁决，先恢复正常宿主 SessionStart；有效 readonly 不重复询问。该反馈不自动调用提问工具，也不证明模型实际展示了问题。
 
 本仓回归先在原实现上取得 3/3 失败，局部修复后相关 5 项通过；同时覆盖无观察 Stop 首次与重入保留其它任务原件、可执行 inspect 的真实输出、引号会话标识、空观察不补快照、真实验证失败及会话别名冲突。完整输出保存在 `.echo-semantic/local/pending-stop-recovery-01a15d45/`；独立功能对照为 `.echo-semantic/local/stop-recovery-01a15d45/unowned-stop-control-{red,green}.json`，仅当前工作区可用，均不是原生宿主执行证明。
+
+## 无损差异解码回归
+
+2026-10-15 的有界修复复用 `skills/semantic-contract/scripts/verify_semantic.py` 中 `run_git`、`added_lines` 和原 `infer_signals`，
+只为文本读取增加可逆 `surrogateescape`。`tests/test_binary_diff.py` 六项具名测试验证 tracked/untracked 非 UTF-8 字节原样回编码、
+相邻公开接口和状态风险不丢失、中文 emoji 路径不变、二进制协议路径仍受约束、显式 blob 保持 bytes，以及 Git 错误仍抛出。
+原公共版本基线为 8ecb51f9119a96ac9fa09ffc500f1a3dea299fdb；这是校验器输入与风险证据修复，不宣称新会话或 GUI 重载 Hook 已验收。

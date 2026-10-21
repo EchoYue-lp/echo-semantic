@@ -4,7 +4,7 @@ id: map.semantic-continuity
 kind: capability_map
 title: 多前置版本语义连续性门禁
 risk: high
-observed_at: source:4aee3f15c46918de495f7bfe0a3f4c45ddd24af4d2875cbb000e6becb5766912
+observed_at: source:e2f030c43982a0e5bdc363e45ef67e8cc189d9cdd59552c89dd647c8cc5fb97e
 boundary_refs: [boundary.semantic-continuity]
 behavior_refs: [behavior.semantic-continuity]
 rule_refs: [rule.semantic-obligation-preservation]
@@ -33,6 +33,20 @@ scenarios:
     status: mapped
     source_refs: [action.yml#continuity-merge-base]
     rule_refs: [rule.semantic-obligation-preservation]
+  historical-observation:
+    status: mapped
+    source_refs: [skills/semantic-contract/scripts/verify_semantic.py]
+    behavior_refs: [behavior.semantic-continuity]
+    evidence_refs: [evidence.semantic-continuity]
+    review_scope: kind-aware观察、真实历史Git及逐issue迁移；当前引用按本轮源码核对，旧观察身份由Evidence历史表保留。
+  bound-historical-migration:
+    status: mapped
+    source_refs: [skills/semantic-contract/scripts/verify_semantic.py, tests/test_continuity.py]
+    behavior_refs: [behavior.semantic-continuity]
+    rule_refs: [rule.semantic-obligation-preservation]
+    evidence_refs: [evidence.semantic-continuity]
+    review_scope: documentation例外与plain同role强替代分开；实际全部variant/Eq/ADR/currentconsumer匹配，结果fatal及其它未映射错误保。
+
 ---
 
 # 多前置版本语义连续性
@@ -76,3 +90,8 @@ scenarios:
 ## 未展开项
 
 未建模的隐含行为只能由启发式生成候选；动态运行时事实仍需采用方 Evidence。
+
+
+## 本次当前实现范围
+
+四个原场景和正文保留；当前header绑定合并后的引用核对，旧observation的Git/source身份见evidence.semantic-continuity历史表。新增两个场景由真实Git正负例具名限定，不能据此推断所有采用方迁移通过。源码聚合义务保留全部变体，正常singlevariant保持ID/FP，未匹配与resultcurrent缺失继续失败。

@@ -42,6 +42,7 @@ RUNTIME_STATE_FILES = {
     "session-snapshot.json",
     "stop-dedupe.json",
 }
+RUNTIME_STATE_DIRECTORIES = {"local"}
 KIND_BY_DIRECTORY = {
     "maps": "capability_map",
     "behaviors": "behavior",
@@ -345,6 +346,9 @@ def run_git(root: Path, *args: str, binary: bool = False) -> bytes | str:
         check=False,
         capture_output=True,
         text=not binary,
+        # 普通 diff 可含原文件的非 UTF-8 字节，保留它们并继续识别文本风险信号。
+        encoding=None if binary else "utf-8",
+        errors=None if binary else "surrogateescape",
     )
     if result.returncode != 0:
         stderr = (
@@ -416,7 +420,7 @@ def collect_documents(
         "baseline.md",
         *REQUIRED_DIRECTORIES,
         *RUNTIME_STATE_FILES,
-        "local",
+        *RUNTIME_STATE_DIRECTORIES,
     }
     try:
         root_entries = list(semantic_root.iterdir())
@@ -428,7 +432,7 @@ def collect_documents(
             add_error(errors, entry, "语义目录包含合同未声明的根级条目")
         if entry.is_symlink():
             add_error(errors, entry, "语义目录不能使用符号链接")
-        if entry.name == "local" and not entry.is_dir():
+        if entry.name in RUNTIME_STATE_DIRECTORIES and not entry.is_dir():
             add_error(errors, entry, "本地产物根必须是目录")
 
     readme = semantic_root / "README.md"
@@ -571,42 +575,40 @@ def consume_git_blob_batch(
     requested = sorted(set(object_ids))
     if not requested:
         return
-    process = subprocess.Popen(
+    with subprocess.Popen(
         ["git", "-C", str(root), "-c", "core.quotePath=false", "cat-file", "--batch"],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-    )
-    if process.stdin is None or process.stdout is None or process.stderr is None:
-        process.kill()
-        raise RuntimeError("无法启动 Git blob 批量读取")
-    try:
-        for object_id in requested:
-            process.stdin.write(object_id.encode("ascii") + b"\n")
-            process.stdin.flush()
-            header = process.stdout.readline().decode("ascii", errors="strict").strip()
-            parts = header.split()
-            if len(parts) != 3 or parts[0] != object_id or parts[1] != "blob":
-                raise RuntimeError(f"Git blob 批量读取响应无效：{object_id}")
-            size = int(parts[2])
-            content = process.stdout.read(size)
-            separator = process.stdout.read(1)
-            if len(content) != size or separator != b"\n":
-                raise RuntimeError(f"Git blob 批量读取长度无效：{object_id}")
-            consume(object_id, content)
-        process.stdin.close()
-        stderr = process.stderr.read().decode("utf-8", errors="replace").strip()
-        return_code = process.wait()
-        if return_code != 0:
-            raise RuntimeError(stderr or "Git blob 批量读取失败")
-    except Exception:
-        process.kill()
-        process.wait()
-        raise
-    finally:
-        for stream in (process.stdin, process.stdout, process.stderr):
-            if stream is not None:
-                stream.close()
+    ) as process:
+        if process.stdin is None or process.stdout is None or process.stderr is None:
+            process.kill()
+            raise RuntimeError("无法启动 Git blob 批量读取")
+        try:
+            for object_id in requested:
+                process.stdin.write(object_id.encode("ascii") + b"\n")
+                process.stdin.flush()
+                header = (
+                    process.stdout.readline().decode("ascii", errors="strict").strip()
+                )
+                parts = header.split()
+                if len(parts) != 3 or parts[0] != object_id or parts[1] != "blob":
+                    raise RuntimeError(f"Git blob 批量读取响应无效：{object_id}")
+                size = int(parts[2])
+                content = process.stdout.read(size)
+                separator = process.stdout.read(1)
+                if len(content) != size or separator != b"\n":
+                    raise RuntimeError(f"Git blob 批量读取长度无效：{object_id}")
+                consume(object_id, content)
+            process.stdin.close()
+            stderr = process.stderr.read().decode("utf-8", errors="replace").strip()
+            return_code = process.wait()
+            if return_code != 0:
+                raise RuntimeError(stderr or "Git blob 批量读取失败")
+        except Exception:
+            process.kill()
+            process.wait()
+            raise
 
 
 def git_blobs(
@@ -705,6 +707,13 @@ def collect_documents_at_revision(
     cache = blob_cache if blob_cache is not None else {}
     digest_cache = blob_digest_cache if blob_digest_cache is not None else {}
     documents: list[tuple[Path, str, dict[str, Any], str]] = []
+    for relative in entries:
+        if any(
+            relative == f"{SEMANTIC_DIRECTORY}/{name}"
+            or relative.startswith(f"{SEMANTIC_DIRECTORY}/{name}/")
+            for name in RUNTIME_STATE_DIRECTORIES
+        ):
+            add_error(errors, f"{revision}:{relative}", "运行态文件不能被 Git 跟踪")
     baseline_path = f"{SEMANTIC_DIRECTORY}/baseline.md"
     if baseline_path not in entries:
         add_error(errors, f"{revision}:{baseline_path}", "缺少基线文件")
@@ -989,6 +998,126 @@ def extract_obligations(
     return obligations, objects
 
 
+def source_reference_observations(
+    kind: str, data: dict[str, Any]
+) -> list[tuple[str, Any]]:
+    """复用普通源码校验的观察分组；Audit 每项假设保留自己的 revision。"""
+
+    def refs(value: Any) -> Iterable[list[Any]]:
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if key in {"source_refs", "code_refs", "consumer_refs"}:
+                    if isinstance(nested, list):
+                        yield nested
+                else:
+                    yield from refs(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                yield from refs(nested)
+
+    work: list[tuple[str, Any]] = []
+    if kind == "audit":
+        challenges = data.get("challenges", {})
+        if isinstance(challenges, dict):
+            for challenge in challenges.values():
+                if isinstance(challenge, dict):
+                    revision = str(challenge.get("revision", data.get("revision", "")))
+                    work.extend((revision, values) for values in refs(challenge))
+    else:
+        revision = str(data.get("observed_at"))
+        work.extend((revision, values) for values in refs(data))
+    return work
+
+
+HISTORICAL_MIGRATION_FIELDS = {
+    "issue_id",
+    "snapshot_revision",
+    "owner",
+    "owner_fingerprint",
+    "raw_reference",
+    "observed_revision",
+    "historical_content_sha256",
+    "historical_git_mode",
+    "source_role",
+    "replacement_ref",
+    "equivalence_evidence_ref",
+    "scenario",
+}
+
+
+STRONG_REFERENCE_FIELDS = HISTORICAL_MIGRATION_FIELDS | {
+    "replacement_source_ref",
+    "replacement_content_sha256",
+    "replacement_git_mode",
+}
+VARIANT_REPLACEMENT_FIELDS = {
+    "snapshot_revision",
+    "collision_id",
+    "variant_obligation",
+    "variant_fingerprint",
+    "raw_reference",
+    "source_role",
+    "replacement_ref",
+    "replacement_source_ref",
+    "replacement_content_sha256",
+    "replacement_git_mode",
+    "equivalence_evidence_ref",
+    "scenario",
+}
+
+
+def historical_migration_shape_errors(
+    values: Any, fields: set[str] | None = None
+) -> list[str]:
+    """新可选合同严格校验，不默许字段拼写或重复issue。"""
+    fields = HISTORICAL_MIGRATION_FIELDS if fields is None else fields
+    if not isinstance(values, list) or not values:
+        return ["historical_reference_migrations 必须是非空列表"]
+    errors: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, dict) or set(value) != fields:
+            errors.append("historical_reference_migrations 字段不完整或包含未知字段")
+            continue
+        if any(
+            not isinstance(item, str) or not item.strip() for item in value.values()
+        ):
+            errors.append("historical_reference_migrations 字段必须是非空字符串")
+            continue
+        for key in {
+            "issue_id",
+            "owner_fingerprint",
+            "historical_content_sha256",
+            "collision_id",
+            "variant_fingerprint",
+            "replacement_content_sha256",
+        } & fields:
+            if not re.fullmatch(r"[0-9a-f]{64}", value[key]):
+                errors.append(f"迁移字段 {key} 无效")
+        for key in {"snapshot_revision", "observed_revision"} & fields:
+            if not GIT_REVISION_PATTERN.fullmatch(value[key]):
+                errors.append(f"迁移字段 {key} 无效")
+        for key in {"historical_git_mode", "replacement_git_mode"} & fields:
+            if value[key] not in {"100644", "100755", "120000"}:
+                errors.append(f"迁移字段 {key} 无效")
+        for key in {"raw_reference", "replacement_source_ref"} & fields:
+            if parse_source_ref(value[key]) is None:
+                errors.append(f"迁移字段 {key} 无效")
+        identity = value.get("issue_id") or "|".join(
+            value[k]
+            for k in (
+                "snapshot_revision",
+                "collision_id",
+                "variant_obligation",
+                "raw_reference",
+            )
+        )
+        if identity in seen:
+            errors.append("迁移映射重复身份")
+        seen.add(identity)
+    return errors
+
+
 def continuity_snapshot(
     root: Path,
     revision: str,
@@ -1029,6 +1158,57 @@ def continuity_snapshot(
                 current_reference_ids.append(entry[2])
     git_blobs(root, current_reference_ids, cache, digest_cache)
 
+    reference_tree_cache = {resolved: entries}
+    current_reference_issues: list[dict[str, Any]] = []
+
+    dependency_variants: dict[str, dict[str, dict[str, Any]]] = {}
+
+    def add_dependency_variant(
+        owner: str,
+        owner_data: dict[str, Any],
+        raw: str,
+        entry: tuple[str, str, str],
+        actual_revision: str,
+    ) -> str:
+        relative, anchor = parse_source_ref(raw)
+        content_digest = hashlib.sha256(git_blob(root, entry[2], cache)).hexdigest()
+        dependency_id = f"{owner}#source:{content_digest}"
+        role = continuity_source_role(relative, owner_data)
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                {
+                    "content_digest": content_digest,
+                    "anchor": anchor,
+                    "git_mode": entry[0],
+                    "role": role,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        variants = dependency_variants.setdefault(dependency_id, {})
+        variant = variants.setdefault(
+            fingerprint,
+            {
+                "fingerprint": fingerprint,
+                "content_sha256": content_digest,
+                "anchor": anchor,
+                "git_mode": entry[0],
+                "source_role": role,
+                "references": [],
+            },
+        )
+        reference = {"raw_reference": raw, "actual_revision": actual_revision}
+        if reference not in variant["references"]:
+            variant["references"].append(reference)
+        obligations[dependency_id] = {
+            "id": dependency_id,
+            "kind": "source_dependency",
+            "risk": obligations[owner]["risk"],
+            "fingerprint": fingerprint,
+        }
+        return dependency_id
+
     def add_current_dependencies(
         owner: str, owner_data: dict[str, Any], values: Iterable[str]
     ) -> None:
@@ -1036,45 +1216,83 @@ def continuity_snapshot(
             parsed = parse_source_ref(raw)
             if parsed is None:
                 continue
-            relative, anchor = parsed
-            entry = entries.get(relative)
-            if entry is None or entry[1] != "blob":
-                continue
-            content_digest = hashlib.sha256(git_blob(root, entry[2], cache)).hexdigest()
-            dependency_id = f"{owner}#source:{content_digest}"
-            dependency_fingerprint = hashlib.sha256(
-                json.dumps(
-                    {
-                        "content_digest": content_digest,
-                        "anchor": anchor,
-                        "git_mode": entry[0],
-                        "role": continuity_source_role(relative, owner_data),
-                    },
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode("utf-8")
-            ).hexdigest()
-            obligations[dependency_id] = {
-                "id": dependency_id,
-                "kind": "source_dependency",
-                "risk": obligations[owner]["risk"],
-                "fingerprint": dependency_fingerprint,
-            }
+            entry = entries.get(parsed[0])
+            if entry is not None and entry[1] == "blob":
+                add_dependency_variant(owner, owner_data, raw, entry, resolved)
 
-    def require_current_references(values: Iterable[str], source: str) -> None:
+    def require_current_references(
+        owner: str,
+        owner_data: dict[str, Any],
+        values: Iterable[str],
+        source: str,
+        observation: Any,
+    ) -> None:
         for raw in values:
             parsed = parse_source_ref(raw)
             if parsed is None:
                 continue
             relative, anchor = parsed
             entry = entries.get(relative)
-            if entry is None or entry[1] != "blob":
-                add_error(errors, source, f"语义依赖未保留在候选结果：{raw}")
-                continue
-            if anchor and anchor not in git_blob(root, entry[2], cache).decode(
-                "utf-8", errors="replace"
+            missing = entry is None or entry[1] != "blob"
+            if not missing and (
+                not anchor
+                or anchor
+                in git_blob(root, entry[2], cache).decode("utf-8", errors="replace")
             ):
-                add_error(errors, source, f"候选结果缺少语义依赖锚点：{raw}")
+                continue
+            message = (
+                f"语义依赖未保留在候选结果：{raw}"
+                if missing
+                else f"候选结果缺少语义依赖锚点：{raw}"
+            )
+            error_index = len(errors)
+            add_error(errors, source, message)
+            # 只有真正历史Git原件完整存在才可形成候选issue；其余原错误始终fatal。
+            if not isinstance(observation, str) or not GIT_REVISION_PATTERN.fullmatch(
+                observation
+            ):
+                continue
+            try:
+                observed_revision = resolve_commit(root, observation)
+                if observed_revision not in reference_tree_cache:
+                    reference_tree_cache[observed_revision] = git_tree_entries(
+                        root, observed_revision
+                    )
+                historical = reference_tree_cache[observed_revision].get(relative)
+                if historical is None or historical[1] != "blob":
+                    continue
+                content = git_blob(root, historical[2], cache)
+                if anchor and anchor not in content.decode("utf-8", errors="replace"):
+                    continue
+            except RuntimeError:
+                continue
+            content_digest = hashlib.sha256(content).hexdigest()
+            dependency = None
+            if owner_data.get("kind") == "evidence":
+                dependency = add_dependency_variant(
+                    owner, owner_data, raw, historical, observed_revision
+                )
+            current_reference_issues.append(
+                {
+                    "issue_type": "historical_current_reference_missing"
+                    if missing
+                    else "historical_current_anchor_missing",
+                    "snapshot_revision": resolved,
+                    "owner": owner,
+                    "owner_document_path": source.split(":", 1)[1],
+                    "owner_document_sha256": hashlib.sha256(
+                        git_blob(root, entries[source.split(":", 1)[1]][2], cache)
+                    ).hexdigest(),
+                    "raw_reference": raw,
+                    "observed_revision": observed_revision,
+                    "historical_content_sha256": content_digest,
+                    "historical_git_mode": historical[0],
+                    "historical_anchor": anchor,
+                    "source_role": continuity_source_role(relative, owner_data),
+                    "source_dependency": dependency,
+                    "error_index": error_index,
+                }
+            )
 
     def bind_current_reference_fingerprint(
         owner: str, owner_data: dict[str, Any], values: Iterable[str]
@@ -1140,42 +1358,67 @@ def continuity_snapshot(
             validate_asset(data, validation_path, errors)
         else:
             validate_special(data, kind, validation_path, errors)
-        observed = data.get("observed_at")
-        reference_entries = entries
-        if isinstance(observed, str) and observed.startswith("source:"):
-            if observed != current_source_revision:
-                add_error(
-                    errors,
-                    source,
-                    f"历史对象源码摘要不匹配：对象={observed} 当前={current_source_revision}",
-                )
-        elif isinstance(observed, str) and GIT_REVISION_PATTERN.fullmatch(observed):
-            try:
-                observed_revision = resolve_commit(root, observed)
-                reference_entries = git_tree_entries(root, observed_revision)
-            except RuntimeError as error:
-                add_error(errors, source, f"历史对象 revision 不可恢复：{error}")
-                reference_entries = {}
-        for raw in referenced_values(data):
-            parsed = parse_source_ref(raw)
-            if parsed is None:
-                add_error(errors, source, f"源码引用格式无效：{raw}")
+        observations = (
+            source_reference_observations(kind, data)
+            if kind == "audit"
+            else [(data.get("observed_at"), list(referenced_values(data)))]
+        )
+        for observed, refs in observations:
+            reference_entries = entries
+            if kind == "audit" and not source_revision_valid(observed):
+                add_error(errors, source, "Audit 源码引用 revision 无效")
                 continue
-            relative, anchor = parsed
-            entry = reference_entries.get(relative)
-            if entry is None or entry[1] != "blob":
-                add_error(errors, source, f"源码引用不存在：{raw}")
+            if isinstance(observed, str) and observed.startswith("source:"):
+                if observed != current_source_revision:
+                    add_error(
+                        errors,
+                        source,
+                        f"历史对象源码摘要不匹配：对象={observed} 当前={current_source_revision}",
+                    )
+            elif isinstance(observed, str) and GIT_REVISION_PATTERN.fullmatch(observed):
+                try:
+                    observed_revision = resolve_commit(root, observed)
+                    if observed_revision not in reference_tree_cache:
+                        reference_tree_cache[observed_revision] = git_tree_entries(
+                            root, observed_revision
+                        )
+                    reference_entries = reference_tree_cache[observed_revision]
+                except RuntimeError as error:
+                    add_error(errors, source, f"历史对象 revision 不可恢复：{error}")
+                    reference_entries = {}
+            if not isinstance(refs, list):
                 continue
-            if anchor and anchor not in git_blob(root, entry[2], cache).decode(
-                "utf-8", errors="replace"
-            ):
-                add_error(errors, source, f"源码引用锚点不存在：{raw}")
+            for raw in refs:
+                if not isinstance(raw, str):
+                    continue
+                parsed = parse_source_ref(raw)
+                if parsed is None:
+                    add_error(errors, source, f"源码引用格式无效：{raw}")
+                    continue
+                relative, anchor = parsed
+                if any(
+                    relative == f"{SEMANTIC_DIRECTORY}/{name}"
+                    or relative.startswith(f"{SEMANTIC_DIRECTORY}/{name}/")
+                    for name in RUNTIME_STATE_DIRECTORIES
+                ):
+                    add_error(errors, source, f"本地产物不能作为正式源码引用：{raw}")
+                    continue
+                entry = reference_entries.get(relative)
+                if entry is None or entry[1] != "blob":
+                    add_error(errors, source, f"源码引用不存在：{raw}")
+                    continue
+                if anchor and anchor not in git_blob(root, entry[2], cache).decode(
+                    "utf-8", errors="replace"
+                ):
+                    add_error(errors, source, f"源码引用锚点不存在：{raw}")
         if isinstance(identifier, str) and identifier in obligations:
             current_values = list(referenced_values(data))
-            require_current_references(current_values, source)
-            bind_current_reference_fingerprint(identifier, data, current_values)
             if kind == "evidence":
                 add_current_dependencies(identifier, data, current_values)
+            require_current_references(
+                identifier, data, current_values, source, data.get("observed_at")
+            )
+            bind_current_reference_fingerprint(identifier, data, current_values)
         if kind == "capability_map" and isinstance(identifier, str):
             scenarios = data.get("scenarios", {})
             if isinstance(scenarios, dict):
@@ -1183,11 +1426,83 @@ def continuity_snapshot(
                     owner = f"{identifier}#scenario:{name}"
                     if isinstance(scenario, dict) and owner in obligations:
                         current_values = list(referenced_values(scenario))
-                        require_current_references(current_values, source)
+                        require_current_references(
+                            owner,
+                            scenario,
+                            current_values,
+                            source,
+                            data.get("observed_at"),
+                        )
                         bind_current_reference_fingerprint(
                             owner, scenario, current_values
                         )
+    collisions: list[dict[str, Any]] = []
+    for dependency_id, variants in sorted(dependency_variants.items()):
+        if len(variants) == 1:
+            continue
+        owner = dependency_id.split("#source:", 1)[0]
+        ordered = []
+        for fingerprint, variant in sorted(variants.items()):
+            identifier = f"{dependency_id}#variant:{fingerprint}"
+            obligations[identifier] = {
+                "id": identifier,
+                "kind": "source_dependency",
+                "risk": obligations[owner]["risk"],
+                "fingerprint": fingerprint,
+            }
+            ordered.append(
+                {
+                    **variant,
+                    "obligation": identifier,
+                    "references": sorted(
+                        variant["references"],
+                        key=lambda r: (r["raw_reference"], r["actual_revision"]),
+                    ),
+                }
+            )
+        aggregate = hashlib.sha256(
+            json.dumps(sorted(variants), separators=(",", ":")).encode()
+        ).hexdigest()
+        obligations[dependency_id]["fingerprint"] = aggregate
+        identity = {
+            "snapshot_revision": resolved,
+            "owner": owner,
+            "dependency_id": dependency_id,
+            "aggregate_fingerprint": aggregate,
+            "variants": ordered,
+        }
+        collision_id = hashlib.sha256(
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        error_index = len(errors)
+        add_error(errors, owner, f"源码依赖身份冲突：{dependency_id}")
+        collisions.append(
+            {**identity, "collision_id": collision_id, "error_index": error_index}
+        )
+    for issue in current_reference_issues:
+        dependency = issue["source_dependency"]
+        if dependency is not None and len(dependency_variants.get(dependency, {})) > 1:
+            fingerprint = hashlib.sha256(
+                json.dumps(
+                    {
+                        "content_digest": issue["historical_content_sha256"],
+                        "anchor": issue["historical_anchor"],
+                        "git_mode": issue["historical_git_mode"],
+                        "role": issue["source_role"],
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+            issue["source_dependency"] = f"{dependency}#variant:{fingerprint}"
+        issue["owner_fingerprint"] = obligations[issue["owner"]]["fingerprint"]
+        identity = {key: value for key, value in issue.items() if key != "error_index"}
+        issue["issue_id"] = hashlib.sha256(
+            json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
     return {
+        "current_reference_issues": current_reference_issues,
+        "source_dependency_collisions": collisions,
         "revision": resolved,
         "documents": documents,
         "objects": objects,
@@ -1332,6 +1647,72 @@ def decision_authority_errors(
     return errors
 
 
+def resolution_authority_errors(
+    root: Path,
+    obligation: str,
+    resolution: dict[str, Any],
+    predecessor_revisions: list[str],
+    result: dict[str, Any],
+) -> list[str]:
+    errors: list[str] = []
+    authorities = resolution.get("decision_authorities", [])
+    if not isinstance(authorities, list) or not authorities:
+        errors.append("缺少人的决策权威")
+    else:
+        for authority in authorities:
+            if not isinstance(authority, dict):
+                errors.append("decision_authority 不是对象")
+                continue
+            path = authority.get("path")
+            kind = authority.get("kind")
+            digest = authority.get("content_digest")
+            if not isinstance(path, str) or kind not in {"design", "adr"}:
+                errors.append("decision_authority 路径或类型无效")
+                continue
+            parts = tuple(part.lower() for part in PurePosixPath(path).parts)
+            actual_kind = (
+                "adr"
+                if "adr" in parts
+                else "design"
+                if PurePosixPath(path).name.lower() == "design.md"
+                or any(part in {"design", "designs"} for part in parts)
+                else None
+            )
+            text = text_at_snapshot_path(root, result, path)
+            if actual_kind != kind or text is None:
+                errors.append(f"decision_authority 不存在或类型错误：{path}")
+                continue
+            actual_digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+            if digest != actual_digest:
+                errors.append(f"decision_authority 摘要不匹配：{path}")
+            for issue in decision_authority_errors(
+                text, kind, obligation, predecessor_revisions
+            ):
+                errors.append(f"decision_authority {issue}：{path}")
+    return errors
+
+
+def active_control_reference_errors(
+    root: Path, snapshot: dict[str, Any], data: dict[str, Any]
+) -> list[str]:
+    """仅当前实际采用的resolution/Eq须具真实结果引用；历史未采用材料保原观察。"""
+    errors: list[str] = []
+    for _, refs in source_reference_observations("evidence", data):
+        for raw in refs:
+            parsed = parse_source_ref(raw) if isinstance(raw, str) else None
+            if parsed is None:
+                errors.append("采用的迁移控制Evidence引用格式无效")
+                continue
+            entry = snapshot["entries"].get(parsed[0])
+            if entry is None or entry[1] != "blob":
+                errors.append(f"采用的迁移控制Evidence当前引用缺失：{raw}")
+            elif parsed[1] and parsed[1] not in git_blob(
+                root, entry[2], snapshot.get("blob_cache")
+            ).decode("utf-8", errors="replace"):
+                errors.append(f"采用的迁移控制Evidence当前锚点缺失：{raw}")
+    return errors
+
+
 def validate_resolution_for_obligation(
     root: Path,
     obligation: str,
@@ -1344,7 +1725,7 @@ def validate_resolution_for_obligation(
 ) -> tuple[str | None, list[str]]:
     evidence = entry["evidence"]
     resolution = entry["resolution"]
-    errors: list[str] = []
+    errors = active_control_reference_errors(root, result, evidence)
     predecessor_revisions = [item["revision"] for item in predecessors]
     if evidence.get("merge_base_revision") != merge_base:
         errors.append("merge_base_revision 不匹配")
@@ -1385,7 +1766,6 @@ def validate_resolution_for_obligation(
     disposition = resolution.get("disposition")
     replacement = resolution.get("replacement_ref")
     referenced_evidence = resolution.get("evidence_refs", [])
-    authorities = resolution.get("decision_authorities", [])
     if disposition not in CONTINUITY_DISPOSITIONS:
         errors.append("disposition 无效")
     elif disposition not in allowed_dispositions:
@@ -1419,6 +1799,7 @@ def validate_resolution_for_obligation(
                 ):
                     errors.append(f"等价或迁移 Evidence 无效：{reference}")
                     continue
+                errors.extend(active_control_reference_errors(root, result, target[1]))
                 supports = target[1].get("supports", [])
                 if (
                     not isinstance(supports, list)
@@ -1460,39 +1841,11 @@ def validate_resolution_for_obligation(
             if covered_fingerprints != required_fingerprints:
                 errors.append("等价 Evidence 未覆盖全部不同父版本指纹")
     if disposition in {"retired", "resolved_conflict"}:
-        if not isinstance(authorities, list) or not authorities:
-            errors.append("缺少人的决策权威")
-        else:
-            for authority in authorities:
-                if not isinstance(authority, dict):
-                    errors.append("decision_authority 不是对象")
-                    continue
-                path = authority.get("path")
-                kind = authority.get("kind")
-                digest = authority.get("content_digest")
-                if not isinstance(path, str) or kind not in {"design", "adr"}:
-                    errors.append("decision_authority 路径或类型无效")
-                    continue
-                parts = tuple(part.lower() for part in PurePosixPath(path).parts)
-                actual_kind = (
-                    "adr"
-                    if "adr" in parts
-                    else "design"
-                    if PurePosixPath(path).name.lower() == "design.md"
-                    or any(part in {"design", "designs"} for part in parts)
-                    else None
-                )
-                text = text_at_snapshot_path(root, result, path)
-                if actual_kind != kind or text is None:
-                    errors.append(f"decision_authority 不存在或类型错误：{path}")
-                    continue
-                actual_digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-                if digest != actual_digest:
-                    errors.append(f"decision_authority 摘要不匹配：{path}")
-                for issue in decision_authority_errors(
-                    text, kind, obligation, predecessor_revisions
-                ):
-                    errors.append(f"decision_authority {issue}：{path}")
+        errors.extend(
+            resolution_authority_errors(
+                root, obligation, resolution, predecessor_revisions, result
+            )
+        )
     if disposition == "retired" and result_obligation is not None:
         errors.append("retired 义务仍存在结果中")
     if (
@@ -1509,6 +1862,402 @@ def validate_resolution_for_obligation(
     if disposition == "retired":
         return "retired", []
     return "replaced", []
+
+
+def replacement_consumer_errors(
+    root: Path,
+    result: dict[str, Any],
+    entry: dict[str, Any],
+    mapping: dict[str, Any],
+    role: str,
+) -> list[str]:
+    errors: list[str] = []
+    raw = mapping.get("replacement_source_ref")
+    parsed = parse_source_ref(raw) if isinstance(raw, str) else None
+    if parsed is None:
+        return ["真实replacement source_ref无效"]
+    relative, anchor = parsed
+    if role.startswith("declared:") or continuity_path_role(relative) != role:
+        errors.append("真实replacement路径角色不匹配原角色")
+    current = result["entries"].get(relative)
+    if current is None or current[1] != "blob":
+        return errors + ["真实replacement consumer不在结果树"]
+    content = git_blob(root, current[2], result.get("blob_cache"))
+    if hashlib.sha256(content).hexdigest() != mapping.get(
+        "replacement_content_sha256"
+    ) or current[0] != mapping.get("replacement_git_mode"):
+        errors.append("真实replacement blob或模式不匹配")
+    if anchor and anchor not in content.decode("utf-8", errors="replace"):
+        errors.append("真实replacement consumer锚点缺失")
+    replacement = entry["resolution"].get("replacement_ref")
+    target = result["objects"].get(replacement)
+    if target is None and isinstance(replacement, str) and "#scenario:" in replacement:
+        owner, name = replacement.split("#scenario:", 1)
+        obj = result["objects"].get(owner)
+        data = obj[1].get("scenarios", {}).get(name) if obj is not None else None
+        kind = "capability_scenario"
+    else:
+        kind, data = (target[0], target[1]) if target is not None else (None, None)
+    if not isinstance(data, dict):
+        errors.append("canonical实际owner对象无效")
+    elif (
+        data.get("asset_type") == "test_consumer"
+        and role != "test_consumer"
+        or data.get("asset_type") == "protocol"
+        and role != "protocol"
+    ):
+        errors.append("canonical declared类型不能覆盖实际路径角色")
+    if not isinstance(data, dict) or raw not in [
+        value for _, refs in source_reference_observations(kind, data) for value in refs
+    ]:
+        errors.append("canonical owner未具名真实replacement consumer")
+    eq = result["objects"].get(mapping.get("equivalence_evidence_ref"))
+    scenario = (
+        eq[1].get("scenario_results", {}).get(mapping.get("scenario"))
+        if eq is not None
+        else None
+    )
+    if (
+        not isinstance(scenario, dict)
+        or scenario.get("status") != "matched"
+        or raw not in scenario.get("source_refs", [])
+    ):
+        errors.append("matched等价场景未具名真实replacement consumer")
+    for authority in entry["resolution"].get("decision_authorities", []):
+        if isinstance(authority, dict):
+            text = text_at_snapshot_path(root, result, authority.get("path", ""))
+            if text is None or raw not in text:
+                errors.append("批准authority未具名真实replacement consumer")
+    return errors
+
+
+def resolve_dependency_collisions(
+    root: Path,
+    base: dict[str, Any],
+    predecessors: list[dict[str, Any]],
+    result: dict[str, Any],
+    groups: dict[str, list[dict[str, Any]]],
+    report: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    parent_revisions = [p["revision"] for p in predecessors]
+    parents = {s["revision"]: s for s in [base, *predecessors]}
+    resolved: dict[str, dict[str, Any]] = {}
+    used: set[tuple[str, str, str, str, str]] = set()
+    for snapshot in parents.values():
+        for collision in snapshot["source_dependency_collisions"]:
+            failures: list[str] = []
+            ids = [
+                collision["dependency_id"],
+                *[v["obligation"] for v in collision["variants"]],
+            ]
+            entries: dict[str, dict[str, Any]] = {}
+            for identifier in ids:
+                candidates = groups.get(identifier, [])
+                if len(candidates) != 1:
+                    failures.append("碰撞原聚合/全部变体必须各有唯一resolution")
+                    continue
+                entry = candidates[0]
+                allowed = (
+                    {"resolved_conflict"}
+                    if identifier == collision["dependency_id"]
+                    else {"replaced"}
+                )
+                status, reasons = validate_resolution_for_obligation(
+                    root,
+                    identifier,
+                    entry,
+                    base["revision"],
+                    predecessors,
+                    result,
+                    result["obligations"].get(identifier),
+                    allowed,
+                )
+                failures.extend(reasons)
+                failures.extend(
+                    resolution_authority_errors(
+                        root, identifier, entry["resolution"], parent_revisions, result
+                    )
+                )
+                row = next(
+                    (r for r in report["results"] if r["obligation"] == identifier),
+                    None,
+                )
+                if status != "replaced" or row is None or row["status"] != "replaced":
+                    failures.append("碰撞聚合/变体未实际合法替代")
+                for authority in entry["resolution"].get("decision_authorities", []):
+                    if isinstance(authority, dict):
+                        text = text_at_snapshot_path(
+                            root, result, authority.get("path", "")
+                        )
+                        if text is None or any(
+                            value not in text
+                            for value in [
+                                collision["collision_id"],
+                                collision["owner"],
+                                snapshot["revision"],
+                                *ids,
+                            ]
+                        ):
+                            failures.append("碰撞authority未覆盖完整原身份")
+                entries[identifier] = entry
+            for variant in collision["variants"]:
+                entry = entries.get(variant["obligation"])
+                if entry is None:
+                    continue
+                mappings = entry["resolution"].get(
+                    "source_dependency_variant_replacements", []
+                )
+                if not mappings:
+                    failures.append("碰撞变体缺真实consumer映射")
+                    continue
+                failures.extend(
+                    historical_migration_shape_errors(
+                        mappings, VARIANT_REPLACEMENT_FIELDS
+                    )
+                )
+                for reference in variant["references"]:
+                    selected = [
+                        m
+                        for m in mappings
+                        if isinstance(m, dict)
+                        and m.get("snapshot_revision") == snapshot["revision"]
+                        and m.get("collision_id") == collision["collision_id"]
+                        and m.get("variant_obligation") == variant["obligation"]
+                        and m.get("raw_reference") == reference["raw_reference"]
+                    ]
+                    if len(selected) != 1:
+                        failures.append("碰撞每个原rawref必须唯一映射")
+                        continue
+                    mapping = selected[0]
+                    used.add(
+                        (
+                            variant["obligation"],
+                            snapshot["revision"],
+                            collision["collision_id"],
+                            variant["obligation"],
+                            reference["raw_reference"],
+                        )
+                    )
+                    if (
+                        mapping.get("variant_fingerprint") != variant["fingerprint"]
+                        or mapping.get("source_role") != variant["source_role"]
+                        or mapping.get("replacement_ref")
+                        != entry["resolution"].get("replacement_ref")
+                        or mapping.get("equivalence_evidence_ref")
+                        not in entry["resolution"].get("evidence_refs", [])
+                    ):
+                        failures.append("碰撞variant精确身份不匹配")
+                    failures.extend(
+                        replacement_consumer_errors(
+                            root, result, entry, mapping, variant["source_role"]
+                        )
+                    )
+            if failures:
+                report["errors"].extend(
+                    f"依赖碰撞 {collision['collision_id']}：{reason}"
+                    for reason in failures
+                )
+            else:
+                resolved[collision["collision_id"]] = {
+                    "collision": collision,
+                    "snapshot_roles": [],
+                    "resolved_obligations": ids,
+                }
+    # 消费身份还绑定承载resolution，跨owner复制不能借合法variant的已消费记录。
+    seen_mappings: set[tuple[str, str, str, str]] = set()
+    for obligation, entries in groups.items():
+        for entry in entries:
+            for m in entry["resolution"].get(
+                "source_dependency_variant_replacements", []
+            ):
+                if not isinstance(m, dict):
+                    report["errors"].append("未匹配的依赖碰撞映射")
+                    continue
+                identity = (
+                    m.get("snapshot_revision"),
+                    m.get("collision_id"),
+                    m.get("variant_obligation"),
+                    m.get("raw_reference"),
+                )
+                if identity in seen_mappings:
+                    report["errors"].append("跨resolution重复依赖碰撞映射")
+                seen_mappings.add(identity)
+                if (
+                    m.get("variant_obligation") != obligation
+                    or (obligation, *identity) not in used
+                ):
+                    report["errors"].append("承载resolution未匹配的依赖碰撞映射")
+    return resolved
+
+
+def apply_historical_reference_migrations(
+    root: Path,
+    base: dict[str, Any],
+    predecessors: list[dict[str, Any]],
+    result: dict[str, Any],
+    groups: dict[str, list[dict[str, Any]]],
+    report: dict[str, Any],
+) -> None:
+    """保原诊断；只解完整合法resolution绑定的父文稿issue，不跳过结果检查。"""
+    parent_revisions = [item["revision"] for item in predecessors]
+    snapshots = [
+        ("merge_base", base),
+        *[("predecessor", item) for item in predecessors],
+        ("result", result),
+    ]
+    issues = {
+        issue["issue_id"]: issue
+        for _, snap in snapshots
+        for issue in snap["current_reference_issues"]
+    }
+    mappings: dict[str, list[tuple[str, dict[str, Any], dict[str, Any]]]] = {}
+    for obligation, entries in groups.items():
+        for entry in entries:
+            for field, fields in [
+                ("historical_reference_migrations", HISTORICAL_MIGRATION_FIELDS),
+                ("current_reference_replacements", STRONG_REFERENCE_FIELDS),
+            ]:
+                values = entry["resolution"].get(field, [])
+                if not values:
+                    continue
+                shape = historical_migration_shape_errors(values, fields)
+                report["errors"].extend(shape)
+                if shape:
+                    continue
+                for mapping in values:
+                    mappings.setdefault(mapping["issue_id"], []).append(
+                        (obligation, entry, {**mapping, "_migration_field": field})
+                    )
+    resolved: dict[str, dict[str, Any]] = {}
+    for issue_id, matches in mappings.items():
+        issue = issues.get(issue_id)
+        failures: list[str] = []
+        if issue is None or len(matches) != 1:
+            report["errors"].append(f"历史存储迁移issue不存在或重复：{issue_id}")
+            continue
+        obligation, entry, mapping = matches[0]
+        resolution = entry["resolution"]
+        if obligation != (issue["source_dependency"] or issue["owner"]):
+            failures.append("迁移resolution未绑定原依赖义务")
+        field = mapping["_migration_field"]
+        if (
+            field == "historical_reference_migrations"
+            and issue["source_role"] != "documentation"
+        ):
+            failures.append("历史存储迁移只允许原documentation角色")
+        if field == "current_reference_replacements":
+            if issue["source_role"] == "documentation" or issue[
+                "source_role"
+            ].startswith("declared:"):
+                failures.append("强consumer替代只允许原plain非documentation角色")
+            failures.extend(
+                replacement_consumer_errors(
+                    root, result, entry, mapping, issue["source_role"]
+                )
+            )
+        if any(
+            mapping.get(key) != issue.get(key)
+            for key in HISTORICAL_MIGRATION_FIELDS
+            - {"replacement_ref", "equivalence_evidence_ref", "scenario"}
+        ):
+            failures.append("历史存储迁移身份字段不匹配")
+        if mapping["replacement_ref"] != resolution.get("replacement_ref"):
+            failures.append("历史存储迁移replacement不匹配")
+        reference = mapping["equivalence_evidence_ref"]
+        target = result["objects"].get(reference)
+        if (
+            reference not in resolution.get("evidence_refs", [])
+            or target is None
+            or target[0] != "evidence"
+        ):
+            failures.append("历史存储迁移未绑定resolution等价Evidence")
+        else:
+            scenarios = target[1].get("scenario_results")
+            scenario = (
+                scenarios.get(mapping["scenario"])
+                if isinstance(scenarios, dict)
+                else None
+            )
+            if not isinstance(scenario, dict) or scenario.get("status") != "matched":
+                failures.append("历史存储迁移scenario未matched")
+        current = result["obligations"].get(obligation)
+        status, errors = validate_resolution_for_obligation(
+            root,
+            obligation,
+            entry,
+            base["revision"],
+            predecessors,
+            result,
+            current,
+            {"replaced", "resolved_conflict"},
+        )
+        failures.extend(errors)
+        failures.extend(
+            resolution_authority_errors(
+                root, obligation, resolution, parent_revisions, result
+            )
+        )
+        for authority in resolution.get("decision_authorities", []):
+            if isinstance(authority, dict):
+                text = text_at_snapshot_path(root, result, authority.get("path", ""))
+                if text is not None and (
+                    issue_id not in text
+                    or issue["owner"] not in text
+                    or issue["snapshot_revision"] not in text
+                ):
+                    failures.append("历史存储迁移authority未绑定issue/owner/原snapshot")
+        row = next(
+            (row for row in report["results"] if row["obligation"] == obligation), None
+        )
+        if status != "replaced" or row is None or row["status"] != "replaced":
+            failures.append("历史存储迁移未实际完成合法replacement")
+        if failures:
+            report["errors"].extend(
+                f"历史存储迁移 {issue_id}：{error}" for error in failures
+            )
+            continue
+        resolved[issue_id] = {
+            "issue": issue,
+            "snapshot_roles": [],
+            "resolution_obligation": obligation,
+            "continuity_evidence_ref": entry["evidence_ref"],
+            "replacement_ref": resolution["replacement_ref"],
+            "equivalence_evidence_ref": reference,
+            "scenario": mapping["scenario"],
+            "migration_field": field,
+        }
+    collision_resolved = resolve_dependency_collisions(
+        root, base, predecessors, result, groups, report
+    )
+    for role, snapshot in snapshots:
+        accepted_indices: set[int] = set()
+        for issue in snapshot["current_reference_issues"]:
+            if role != "result" and issue["issue_id"] in resolved:
+                accepted_indices.add(issue["error_index"])
+                resolved[issue["issue_id"]]["snapshot_roles"].append(role)
+        if role != "result":
+            for collision in snapshot["source_dependency_collisions"]:
+                if collision["collision_id"] in collision_resolved:
+                    accepted_indices.add(collision["error_index"])
+                    collision_resolved[collision["collision_id"]][
+                        "snapshot_roles"
+                    ].append(role)
+        report["errors"].extend(
+            error
+            for i, error in enumerate(snapshot["errors"])
+            if i not in accepted_indices
+        )
+    report["resolved_historical_reference_migrations"] = [
+        item
+        for item in resolved.values()
+        if item["migration_field"] == "historical_reference_migrations"
+    ]
+    report["resolved_current_reference_replacements"] = [
+        item
+        for item in resolved.values()
+        if item["migration_field"] == "current_reference_replacements"
+    ]
+    report["resolved_source_dependency_collisions"] = list(collision_resolved.values())
 
 
 def compare_continuity(
@@ -1609,8 +2358,22 @@ def compare_continuity(
         )
         if ancestry.returncode != 0:
             report["errors"].append("merge-base 不是 result 的祖先")
-        for snapshot in [base, *predecessors, result]:
-            report["errors"].extend(snapshot["errors"])
+        report["snapshot_diagnostics"] = [
+            {
+                "snapshot_revision": snapshot["revision"],
+                "snapshot_role": role,
+                "errors": list(snapshot["errors"]),
+                "current_reference_issues": snapshot["current_reference_issues"],
+                "source_dependency_collisions": snapshot[
+                    "source_dependency_collisions"
+                ],
+            }
+            for role, snapshot in [
+                ("merge_base", base),
+                *[("predecessor", item) for item in predecessors],
+                ("result", result),
+            ]
+        ]
 
         result_snapshot = "source:" + source_digest_at_revision(
             root,
@@ -1700,6 +2463,13 @@ def compare_continuity(
                         )
                     elif result_obligation is None:
                         allowed_dispositions = {"replaced", "retired"}
+                        if any(
+                            collision["dependency_id"] == obligation
+                            for snapshot in [base, *predecessors]
+                            for collision in snapshot["source_dependency_collisions"]
+                        ):
+                            # 原歧义聚合只能以批准的显式冲突处置承接全部变体。
+                            allowed_dispositions.add("resolved_conflict")
                     else:
                         allowed_dispositions = {"replaced", "resolved_conflict"}
                     status_value, resolution_errors = (
@@ -1774,6 +2544,9 @@ def compare_continuity(
                     "reasons": reasons,
                 }
             )
+        apply_historical_reference_migrations(
+            root, base, predecessors, result, resolution_groups, report
+        )
         report["passed"] = not report["errors"] and all(
             item["status"] in {"preserved", "replaced", "retired"}
             for item in report["results"]
@@ -2075,6 +2848,34 @@ def validate_continuity_evidence(
         if not isinstance(resolution, dict):
             add_error(errors, path, f"continuity resolution 必须是对象：{obligation}")
             continue
+        for field, fields in [
+            ("historical_reference_migrations", HISTORICAL_MIGRATION_FIELDS),
+            ("current_reference_replacements", STRONG_REFERENCE_FIELDS),
+            ("source_dependency_variant_replacements", VARIANT_REPLACEMENT_FIELDS),
+        ]:
+            if field in resolution:
+                for issue in historical_migration_shape_errors(
+                    resolution[field], fields
+                ):
+                    add_error(errors, path, issue)
+        unknown = set(resolution) - {
+            "disposition",
+            "predecessor_fingerprints",
+            "replacement_ref",
+            "evidence_refs",
+            "decision_authorities",
+            "compatibility_impact",
+            "rollback_ref",
+            "historical_reference_migrations",
+            "current_reference_replacements",
+            "source_dependency_variant_replacements",
+        }
+        if unknown:
+            add_error(
+                errors,
+                path,
+                "continuity resolution 包含未知字段：" + ", ".join(sorted(unknown)),
+            )
         disposition = resolution.get("disposition")
         if disposition not in CONTINUITY_DISPOSITIONS:
             add_error(errors, path, f"continuity disposition 无效：{obligation}")
@@ -2287,7 +3088,9 @@ def validate_special(
                 if not isinstance(challenge, dict):
                     add_error(errors, path, f"故障假设 {name} 必须是对象")
                     continue
-                if not source_revision_valid(challenge.get("revision")):
+                if not source_revision_valid(
+                    challenge.get("revision", data.get("revision"))
+                ):
                     add_error(errors, path, f"故障假设 {name} revision 无效")
                 for field in ("source_refs", "evidence_refs"):
                     value = challenge.get(field)
@@ -2537,37 +3340,11 @@ def validate_source_refs(
     content_identities: dict[str, str] | None = None,
 ) -> None:
     current_source_revision = f"source:{source_digest(root)}"
-    work: list[tuple[Path, str, list[Any]]] = []
-    for path, kind, data, _ in documents:
-        revision = data.get("observed_at")
-        if kind in {"behavior", "rule"}:
-            work.append((path, str(revision), data.get("code_refs", [])))
-        elif kind == "evidence":
-            work.append((path, str(revision), data.get("source_refs", [])))
-        elif kind == "asset":
-            work.append((path, str(revision), data.get("code_refs", [])))
-        elif kind == "capability_map":
-            scenarios = data.get("scenarios", {})
-            if isinstance(scenarios, dict):
-                for scenario in scenarios.values():
-                    if isinstance(scenario, dict):
-                        work.append(
-                            (path, str(revision), scenario.get("source_refs", []))
-                        )
-        elif kind == "audit":
-            challenges = data.get("challenges", {})
-            if isinstance(challenges, dict):
-                for challenge in challenges.values():
-                    if isinstance(challenge, dict):
-                        work.append(
-                            (
-                                path,
-                                str(
-                                    challenge.get("revision", data.get("revision", ""))
-                                ),
-                                challenge.get("source_refs", []),
-                            )
-                        )
+    work = [
+        (path, revision, refs)
+        for path, kind, data, _ in documents
+        for revision, refs in source_reference_observations(kind, data)
+    ]
     cache: dict[tuple[str, str], bytes] = {}
     for object_path, revision, refs in work:
         if not source_revision_valid(revision) or not isinstance(refs, list):
@@ -2582,11 +3359,21 @@ def validate_source_refs(
         for raw in refs:
             if not isinstance(raw, str):
                 continue
+            if is_local_artifact(raw.split("#", 1)[0]):
+                add_error(errors, object_path, f"本地产物不能作为正式源码引用：{raw}")
+                continue
             parsed = parse_source_ref(raw)
             if parsed is None:
                 add_error(errors, object_path, f"源码引用格式无效：{raw}")
                 continue
             relative, anchor = parsed
+            if any(
+                relative == f"{SEMANTIC_DIRECTORY}/{name}"
+                or relative.startswith(f"{SEMANTIC_DIRECTORY}/{name}/")
+                for name in RUNTIME_STATE_DIRECTORIES
+            ):
+                add_error(errors, object_path, f"本地产物不能作为正式源码引用：{raw}")
+                continue
             key = (revision, relative)
             try:
                 if key not in cache:
@@ -2734,7 +3521,9 @@ def added_lines(root: Path, base: str, relative: str) -> list[str]:
         tracked = False
     if not tracked and path.is_file():
         try:
-            return path.read_text(encoding="utf-8").splitlines()
+            return path.read_text(
+                encoding="utf-8", errors="surrogateescape"
+            ).splitlines()
         except (OSError, UnicodeError):
             return []
     try:
@@ -3333,50 +4122,10 @@ def validate_task(
         else:
             validate_special(data, kind, root / relative, errors)
 
-        def references(value: Any, revision: str | None = None) -> None:
+        def references(value: Any) -> None:
             if isinstance(value, dict):
-                revision = value.get("revision", value.get("observed_at", revision))
                 for field, child in value.items():
-                    if field in {"code_refs", "source_refs"} and isinstance(
-                        child, list
-                    ):
-                        for ref in child:
-                            parsed_ref = (
-                                parse_source_ref(ref) if isinstance(ref, str) else None
-                            )
-                            if parsed_ref is None:
-                                errors.append(f"相关源码引用格式无效：{ref}")
-                                continue
-                            path, anchor = parsed_ref
-                            try:
-                                if not source_revision_valid(revision):
-                                    raise ValueError(f"相关源码版本无效：{revision}")
-                                effective_revision = revision
-                                if (
-                                    not GIT_REVISION_PATTERN.fullmatch(revision)
-                                    and path in state.get("deletePaths", [])
-                                    and not (root / path).exists()
-                                ):
-                                    effective_revision = base
-                                if GIT_REVISION_PATTERN.fullmatch(effective_revision):
-                                    key = (effective_revision, path)
-                                    if key not in reference_contents:
-                                        reference_contents[key] = content_at_revision(
-                                            root, effective_revision, path
-                                        )
-                                    text = reference_contents[key]
-                                else:
-                                    text = content_at_revision(
-                                        root, effective_revision, path
-                                    )
-                                    contents[path] = text
-                                if anchor and anchor not in text.decode(
-                                    "utf-8", errors="replace"
-                                ):
-                                    errors.append(f"相关源码锚点不存在：{ref}")
-                            except (OSError, RuntimeError, ValueError) as error:
-                                errors.append(str(error))
-                    elif field in SEMANTIC_REF_TYPES or field in {
+                    if field in SEMANTIC_REF_TYPES or field in {
                         "canonical_asset_ref",
                         "candidate_refs",
                         "replacement_refs",
@@ -3396,12 +4145,45 @@ def validate_task(
                             else:
                                 errors.append(f"对象引用不能按合同定位：{ref}")
                     else:
-                        references(child, revision)
+                        references(child)
             elif isinstance(value, list):
                 for child in value:
-                    references(child, revision)
+                    references(child)
 
         if not (kind == "discovery" and "scan_report" in data):
+            for revision, refs in source_reference_observations(kind, data):
+                for ref in refs:
+                    parsed_ref = parse_source_ref(ref) if isinstance(ref, str) else None
+                    if parsed_ref is None:
+                        errors.append(f"相关源码引用格式无效：{ref}")
+                        continue
+                    path, anchor = parsed_ref
+                    try:
+                        if not source_revision_valid(revision):
+                            raise ValueError(f"相关源码版本无效：{revision}")
+                        effective_revision = revision
+                        if (
+                            not GIT_REVISION_PATTERN.fullmatch(revision)
+                            and path in state.get("deletePaths", [])
+                            and not (root / path).exists()
+                        ):
+                            effective_revision = base
+                        if GIT_REVISION_PATTERN.fullmatch(effective_revision):
+                            key = (effective_revision, path)
+                            if key not in reference_contents:
+                                reference_contents[key] = content_at_revision(
+                                    root, effective_revision, path
+                                )
+                            text = reference_contents[key]
+                        else:
+                            text = content_at_revision(root, effective_revision, path)
+                            contents[path] = text
+                        if anchor and anchor not in text.decode(
+                            "utf-8", errors="replace"
+                        ):
+                            errors.append(f"相关源码锚点不存在：{ref}")
+                    except (OSError, RuntimeError, ValueError) as error:
+                        errors.append(str(error))
             references(data)
     for relative in selected:
         if (root / relative).is_file() and not relative.startswith(".echo-semantic/"):

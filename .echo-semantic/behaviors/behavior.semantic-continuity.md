@@ -8,7 +8,7 @@ risk: high
 primary_focus: contract_evidence
 focus: [state_authority, time_lifecycle, failure_concurrency]
 boundary: boundary.semantic-continuity
-observed_at: source:4aee3f15c46918de495f7bfe0a3f4c45ddd24af4d2875cbb000e6becb5766912
+observed_at: source:e2f030c43982a0e5bdc363e45ef67e8cc189d9cdd59552c89dd647c8cc5fb97e
 code_refs:
   - skills/semantic-contract/scripts/verify_semantic.py#extract_obligations
   - skills/semantic-contract/scripts/verify_semantic.py#compare_continuity
@@ -47,3 +47,8 @@ finding_refs: []
 ## 裁决记录
 
 ADR 0003 已确认保护语义义务而不是源码并集。
+
+
+## 历史文稿存储迁移的边界
+
+本轮沿唯一kind-aware引用worklist，Audit每challenge取自身revision或顶层fallback，历史Git/blob/锚不能由当前文件替代。B只对完整匹配的父documentation问题在原replacement/Eq/批准ADR合同之后处理，结果引用缺失及非documentation角色、未匹配、真正consumer丢失仍失败。报告保原snapshot诊断与每项解决依据，不把数量回落或历史tag存在当业务等价。

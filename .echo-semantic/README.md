@@ -16,3 +16,5 @@
 `preflight.json`、`route.json`、`continuation.json`、`session-snapshot.json`、`stop-dedupe.json` 是可丢弃运行态，和 `local/` 一起由 `.git/info/exclude` 排除，不得提交。
 
 日志、完整结果、临时脚本、补丁、源码副本和中间清单统一放在 `local/<task-id>/`，不属于语义对象或正式源码引用；长期 Evidence 只提炼必要结论和原件位置。目录准备使用插件 `scripts/artifacts.mjs prepare`，CI 产物沿用 Artifact。不自动清理或上传本地产物。
+
+其它未声明的根目录仍按材料合同拒绝。

@@ -14,6 +14,8 @@ uv run skills/semantic-contract/scripts/verify_semantic.py --root <仓库绝对�
 
 repository 收据重入会真实重验完整材料和任务依据，包括被 Git 忽略的文件；普通 task 收据保持轻量。内部只读检查入口 `--repository-receipt-check` 可与 `--task-evidence-stdin` 配合，从 stdin 接收原收据的路径摘要映射，不能混用任务、基准或连续性参数；该命令不会生成成功收据。瞬时身份观察和项目状态锁防止验证后内容变化或新任务记录被旧 Stop 结算。
 
+task 报告及成功收据另存 `referenceDigests`，按 revision/path 记录历史摘要；旧 task 收据缺少该字段不能重用，明确 `{}` 表示没有历史引用。`--reference-receipt-check --task-evidence-stdin` 只读重验真实 Git 内容。存在历史依据时，repository 的 `taskEvidenceDigests` 使用 `{files,references}` 信封，旧纯文件映射继续兼容；当前同名文件不能替代历史依据。
+
 ## 本地产物与提交检查
 
 在插件根目录执行目录准备，或将脚本路径替换为已安装插件的绝对路径：
@@ -89,6 +91,13 @@ node runtime/route.mjs \
 输出包含 `route`、`scope`、`skills`、`changedPaths`、`highRiskPaths`、`enforcement`、静态 `capabilities`、安装探测 `runtimeProbe` 和真实事件
 `hookEvidence`。没有明确任务且没有工作树变化时为 `idle`；`--scope repository` 才选择全项目维护；明确任务通过有效预检后按任务范围路由。手工运行不会伪造 Hook 事件证据。
 路由结果同时写入目标仓库 `.echo-semantic/route.json`，并更新 `status.md` 和 `status.json`。
+
+## 非 UTF-8 差异与风险识别
+
+校验器的普通 Git 文本读取使用 UTF-8 `surrogateescape` 保留原字节；未跟踪文件的新增行采用相同规则。原文件包含非法 UTF-8 时，
+差异仍参与路径和风险标记检查，不会因替换字符或忽略解码错误而隐藏相邻的公开接口、状态权威或协议变化。
+`binary=True` 的 Git blob 读取仍返回原始 `bytes`，真正的二进制 diff 仍保留变更路径和协议义务；Git 命令失败仍返回非零。
+该处理不修改项目文件、不改变正式语义材料的 UTF-8 要求，也不豁免任何路径或验证依据。
 
 ## 语义连续性门禁
 
@@ -337,3 +346,17 @@ uv run skills/semantic-discover/scripts/inventory.py \
 结构核对支持无 Baseline 项目。确认核对必须在用户真实答复后执行，报告或源码变化会拒绝；`baselineUpdated` 固定为 false。随后通过预检维护已确认语义材料，执行全项目严格和工程验证。旧 `--write` 不再覆盖 Asset、Finding 或 `discovery.semantic-assets.md`；脚本消费者应读取 `report_path`。长期扫描报告位于 `.echo-semantic/discovery/`，不排除提交，任务运行态保持不变。
 
 通用外部调度与 cron 配置示例、模拟环境及真实触发验收见[用户定时扫描](scheduled-scanning.md)。周期、项目、工具环境和日志位置由用户配置。
+
+## 插件仓库 CI 的 uv 缓存依据
+
+本仓库 CI 的 `setup-uv` 缓存失效键显式匹配 `package.json` 和 `skills/semantic-contract/scripts/verify_semantic.py`：
+前者保存 npm 验证脚本与 uvx Ruff 版本，后者的 PEP 723 头保存 PyYAML 依赖。默认 requirements/uv.lock glob 在本仓库没有对应文件，
+不能作为缓存依赖依据。此设置只绑定缓存失效来源，不关闭缓存、测试或原始警告输出；实际 CI 结论仍以相应提交的完整日志为准。
+
+
+## 历史引用迁移报告
+
+连续性命令和退出规则保持原入口；Audit的每项challenge按其revision或顶层fallback恢复原Git。受控文稿存储迁移沿既有semantic_continuity.resolutions增加historical_reference_migrations，精确绑定snapshot issue、原父指纹、真实历史blob/锚/mode/角色、matched等价场景及批准ADR。详见唯一[材料合同](../skills/semantic-contract/references/semantic-artifact-contract.md)。报告保snapshot_diagnostics与resolved_historical_reference_migrations；原始诊断可保留而对应父文稿issue被合法解决，result缺current引用仍fatal。没有忽略父错误或将测试/源码改为文稿的选项，未映射问题继续非零。
+
+
+强源码/测试consumer迁移使用同一resolution中严格的current_reference_replacements；碰撞组保聚合和每variant义务，用source_dependency_variant_replacements逐原ref绑定真实结果consumer。两者不是忽略错误选项，结果树/role/锚/SHA/mode及原完整Eq/ADR必须全部通过，未处置与结果歧义继续非零。报告补充source_dependency_collisions、resolved_source_dependency_collisions与resolved_current_reference_replacements；单variant旧ID/FP不改。

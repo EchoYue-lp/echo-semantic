@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.semantic-consolidation
 kind: evidence
-observed_at: source:4aee3f15c46918de495f7bfe0a3f4c45ddd24af4d2875cbb000e6becb5766912
+observed_at: source:e2f030c43982a0e5bdc363e45ef67e8cc189d9cdd59552c89dd647c8cc5fb97e
 source_refs:
   - skills/semantic-discover/scripts/inventory.py#scan
   - skills/semantic-consolidate/scripts/consolidate.py#main

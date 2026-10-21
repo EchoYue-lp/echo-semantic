@@ -7,7 +7,7 @@ expectation: human_confirmed
 risk: high
 primary_focus: contract_evidence
 focus: [state_authority, time_lifecycle, failure_concurrency]
-observed_at: source:4aee3f15c46918de495f7bfe0a3f4c45ddd24af4d2875cbb000e6becb5766912
+observed_at: source:e2f030c43982a0e5bdc363e45ef67e8cc189d9cdd59552c89dd647c8cc5fb97e
 behavior_refs: [behavior.semantic-continuity]
 code_refs:
   - skills/semantic-contract/scripts/verify_semantic.py#compare_continuity
@@ -42,3 +42,8 @@ finding_refs: []
 ## 裁决记录
 
 退役和双侧冲突解决必须绑定人的 design/ADR 摘要、兼容影响与回滚方式。
+
+
+## 原件与当前依赖
+
+历史观察必须真实可恢复；Audit缺省revision只回退其顶层，不把显式空值回退。结果采用的迁移控制Evidence须有真实current引用，未采用的历史控制材料仍按原观察读取。历史存储resolution精确绑定issue、父指纹、原blob/mode/锚/角色、原/替义务、matched场景与正式批准authority；父文稿之外的错误不因存储迁移而放过。

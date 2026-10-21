@@ -233,16 +233,36 @@ with tempfile.TemporaryDirectory(prefix='echo-task-history-') as temporary:
     for directory in v.REQUIRED_DIRECTORIES:(semantic/directory).mkdir(parents=True,exist_ok=True)
     (semantic/'README.md').write_text('# 历史引用夹具\n')
     evidence=[]
+    grouped=scenario.startswith('task_audit_') or scenario=='task_map_observation'
     for name,revision,anchor in [('one',first,'retired_one'),('two',second,'retired_two')]:
         if scenario=='task_invalid_revision' and name=='one':revision='f'*40
         if scenario=='task_invalid_anchor' and name=='one':anchor='missing_anchor'
         if scenario=='task_current_missing' and name=='one':revision='source:'+'0'*64
+        if scenario=='task_consumer_current_missing' and name=='one':revision='source:'+'0'*64
         path=semantic/'assets'/('asset.'+name+'.md')
-        v.write_document(path,{'schema_version':1,'id':'asset.'+name,'kind':'asset','title':'历史资产','asset_type':'file','status':'deprecated','risk':'low','observed_at':revision,'boundary_refs':[],'code_refs':['retired.txt#'+anchor],'consumer_refs':[],'behavior_refs':[],'rule_refs':[],'evidence_refs':[],'finding_refs':[]},v.REQUIRED_HEADINGS['asset'])
+        refs=[] if grouped else ['retired.txt#'+anchor]
+        consumer=scenario.startswith('task_consumer_')
+        v.write_document(path,{'schema_version':1,'id':'asset.'+name,'kind':'asset','title':'历史资产','asset_type':'file','status':'deprecated','risk':'low','observed_at':revision,'boundary_refs':[],'code_refs':[] if consumer else refs,'consumer_refs':refs if consumer else [],'behavior_refs':[],'rule_refs':[],'evidence_refs':[],'finding_refs':[]},v.REQUIRED_HEADINGS['asset'])
         evidence.append(path.relative_to(root).as_posix())
     path=semantic/'evidence/evidence.history.md'
-    v.write_document(path,{'schema_version':1,'id':'evidence.history','kind':'evidence','observed_at':first,'source_refs':['retired.txt#retired_one'],'supports':[],'limitations':['只证明历史内容']},v.REQUIRED_HEADINGS['evidence'])
+    v.write_document(path,{'schema_version':1,'id':'evidence.history','kind':'evidence','observed_at':first,'source_refs':['target.txt#fixture'] if grouped or scenario.startswith('task_consumer_') else ['retired.txt#retired_one'],'supports':[],'limitations':['只证明历史内容']},v.REQUIRED_HEADINGS['evidence'])
     evidence.append(path.relative_to(root).as_posix())
+    if grouped:
+        map_data={'schema_version':1,'id':'map.history','kind':'capability_map','title':'历史观察范围','risk':'low','observed_at':first,'boundary_refs':['boundary.history'],'behavior_refs':[],'rule_refs':[],'evidence_refs':[],'finding_refs':[],'audit_refs':[],'related_map_refs':[],'scenarios':{}}
+        if scenario=='task_map_observation':
+            map_data['scenarios']={'historical':{'status':'needs_review','unknown':'只检查历史来源','next_step':'后续人工审查','revision':second,'source_refs':['retired.txt#retired_one']}}
+        else:
+            challenges={'one':{'revision':first,'source_refs':['retired.txt#retired_one'],'evidence_refs':['evidence.history']},'two':{'source_refs':['retired.txt#retired_two'],'evidence_refs':['evidence.history']}}
+            if scenario=='task_audit_nested_revision':
+                challenges['one']['details']={'revision':second,'source_refs':['retired.txt#retired_one']}
+            if scenario in {'task_audit_null','task_audit_empty'}:
+                challenges['one']['revision']=None if scenario=='task_audit_null' else ''
+            path=semantic/'audits/audit.history.md'
+            v.write_document(path,{'schema_version':1,'id':'audit.history','kind':'audit','boundary_ref':'boundary.history','lens':'state_authority','freshness':'examined','revision':second,'challenges':challenges,'finding_refs':[]},v.REQUIRED_HEADINGS['audit'])
+            evidence.append(path.relative_to(root).as_posix())
+        path=semantic/'maps/map.history.md'
+        v.write_document(path,map_data,v.REQUIRED_HEADINGS['capability_map'])
+        evidence.append(path.relative_to(root).as_posix())
     regions=[{'path':'target.txt','status':'supporting'}]
     if old.exists():regions.append({'path':'retired.txt','status':'supporting'})
     v.write_document(semantic/'baseline.md',{'schema_version':1,'id':'baseline.repository','kind':'baseline','source_snapshot':{'base_revision':second,'content_digest':v.source_digest(root)},'inventory_closure':'open','behavior_model_closure':'open','map_refs':[],'regions':regions,'boundaries':[],'coverage':[]},v.REQUIRED_HEADINGS['baseline'])
@@ -266,7 +286,7 @@ with tempfile.TemporaryDirectory(prefix='echo-task-history-') as temporary:
     if scenario=='task_unauthorized_delete':
         state_path=semantic/'preflight.json';state=json.loads(state_path.read_text());state['deletePaths']=['retired.txt'];state['repairRefs']=[];state_path.write_text(json.dumps(state))
     errors,report=v.validate_task(root,base,'historical-task',repository_scope=scope=='repository')
-    negative={'task_invalid_revision':'f'*40,'task_invalid_anchor':'锚点','task_current_missing':'retired.txt','task_unauthorized_delete':'删除变化'}
+    negative={'task_invalid_revision':'f'*40,'task_invalid_anchor':'锚点','task_current_missing':'retired.txt','task_consumer_current_missing':'retired.txt','task_unauthorized_delete':'删除变化','task_audit_null':'revision','task_audit_empty':'revision'}
     if scenario in negative:
         assert errors,(scenario,report)
         assert negative[scenario].lower() in '\n'.join(errors).lower(),errors
@@ -277,7 +297,7 @@ with tempfile.TemporaryDirectory(prefix='echo-task-history-') as temporary:
         references=report['referenceDigests']
         first_key=json.dumps([first,'retired.txt'],ensure_ascii=False)
         second_key=json.dumps([second,'retired.txt'],ensure_ascii=False)
-        assert references[first_key]!=references[second_key],references
+        if scenario!='task_map_observation':assert references[first_key]!=references[second_key],references
         assert references[first_key]==hashlib.sha256(v.content_at_revision(root,first,'retired.txt')).hexdigest()
         if scenario.startswith('task_hook_'):
             first_stop=invoke('stop');assert first_stop.returncode==0,first_stop.stderr
@@ -360,3 +380,24 @@ class TaskHistoricalReferenceTests(unittest.TestCase):
 
     def test_legacy_task_receipt_without_historical_identity_is_not_reused(self):
         self.scenario("task_hook_legacy_missing")
+
+    def test_historical_consumer_only_refs_produce_revision_digests(self):
+        self.scenario("task_consumer_only")
+
+    def test_missing_current_consumer_is_rejected(self):
+        self.scenario("task_consumer_current_missing")
+
+    def test_audit_challenge_revisions_and_missing_key_inheritance(self):
+        self.scenario("task_audit_grouped")
+
+    def test_nested_audit_metadata_cannot_override_challenge_revision(self):
+        self.scenario("task_audit_nested_revision")
+
+    def test_explicit_null_audit_revision_is_rejected(self):
+        self.scenario("task_audit_null")
+
+    def test_explicit_empty_audit_revision_is_rejected(self):
+        self.scenario("task_audit_empty")
+
+    def test_map_scenario_uses_map_observation(self):
+        self.scenario("task_map_observation")

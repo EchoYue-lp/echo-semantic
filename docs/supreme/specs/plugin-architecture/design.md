@@ -718,3 +718,38 @@ Skill 适合语义判断，Hook 适合生命周期接线，脚本和 CI 适合�
 - 没有被建模为 Behavior、Rule、Capability 场景、Finding 或 Evidence 依赖的隐含行为只能作为启发式候选，不能获得绝对保全保证；
 - 动态注册、反射、配置路由和运行环境差异无法闭合时返回 `unknown`，不自动推断等价；
 - 历史已被 squash/rebase 且前置 revision 与连续性报告均不存在时，插件不能事后恢复已经丢失的语义。
+
+## Git 文本差异的无损解码边界
+
+校验器继续通过唯一 `run_git` 和 `added_lines` 读取 Git diff 与未跟踪文件，并由原 `infer_signals` 判断公开接口、状态权威和协议风险。
+文本输入可能混有非 UTF-8 字节；采用 Python `surrogateescape` 在内部可逆保留字节，使相邻合法文本风险标记仍可识别。
+不采用忽略错误或替换字符的方案，因为它们不能证明原字节保留；不建立第二套项目解析器或额外公共 API。
+显式 `binary=True` 仍返回原始 bytes，真正二进制 diff 仍保留变更路径和协议义务，Git 失败仍传播。
+正式语义材料仍要求 UTF-8，项目负例原件不改写，源摘要仍覆盖原字节。这个修复不改变门禁强度、宿主 Hook、状态权威或产品策略。
+回归测试包含公开类型和状态类型等风险标记，机器预检对此保守声明全部相关高风险信号；不以测试目录为由排除它们。
+验收同时覆盖六项具名解码反例、现有完整工程门禁及相对真实 public 基准的非空变更证据校验；不把 GUI 重载或新宿主会话当作已执行。
+
+CI 的 uv 缓存只作为可重建的执行加速数据，不拥有依赖或验证权威。失效键绑定真实依赖声明来源 `package.json` 和校验器的 PEP 723 头，
+不以不存在的默认 requirements 文件替代；缓存命中、未命中均继续执行原始测试和严格语义校验，不通过禁用缓存或压制输出隐藏警告。
+
+
+## 历史引用观察与受控文稿存储迁移
+
+目标是让普通源码引用校验与连续性采用同一观察规则：Audit每个challenge优先自身revision，缺省回退Audit顶层revision；其它对象沿原observed_at。原Git不可恢复、原blob或原锚缺失始终失败，不从当前源码补造历史。复用现有Git缓存和引用worklist，不新增validator或项目专属逻辑。
+
+连续性snapshot把可真实恢复原件、但当前树缺路径/锚的受保护引用记录为typed issue，保留原errors文本与owner/ref/历史commit/blob SHA/mode/角色/父指纹。Evidence缺当前blob时仍生成真实历史source_dependency，指纹沿原content/anchor/mode/role；冲突不得覆盖。新增字段只表达证据储存迁移，不代业务等价。
+
+只允许既有推导角色恰为documentation（没有declared:*）的base/predecessor issue被精确显式迁移。结果semantic_continuity resolution必须先通过原完整replacement合同、全部父指纹、当前afterdigest、matched等价场景，以及候选树正式批准ADR/Design、兼容和回滚；再逐issue核完整历史身份、相同replacement和等价Evidence。无mapping/重复/错SHA或mode或role/无批准权威/未来Git/未matched/自replacement/wrongkind继续失败。result任何current引用缺失始终fatal；生产、测试、协议、declared角色不获得文稿例外。原其它错误从不清空，报告保原snapshot诊断及逐项resolved证明。
+
+新增可选historical_reference_migrations由正式合同校验，拒绝未知字段拼写。保持既有无迁移字段的调用与报告语义、UTF8无损解码测试、Hook/manifest/安装器及版本不变。只扩展现有门禁，不引入数据库、后台服务、runtime权限或自动归档删除。用户2026-10-15已明确批准本A+B公共门禁变更及正常Git交付，SDK是否完成所有迁移由其自身正式等价Evidence决定。
+
+验收包含Audit双challenge同路径异revision及顶层fallback、原历史失败保留，单documentation真实迁移正例与逐字段/角色/ADR/等价负例、result缺失与其它未映射issue均阻断；SDK原391对照及一rawpilot按真实输入报告，不承诺未迁移的SDK就全0。npm test及npm run verify必须最终通过，真实宿主加载不借静态检查宣称已验。
+
+
+### 保全歧义依赖与真实强consumer替代（同次已批准范围）
+
+原owner#source:SHA若同时有不同anchor/mode/role，不能以first/last覆盖事实。仅碰撞组保聚合义务（全部变体FP的规范摘要）并生成原ID#variant:<原FP>的每个派生义务；正常单变体ID/FP保持原字节。每变体原rawref均保，typed碰撞错误不自动忽略。只有聚合resolved_conflict、所有variant各实际replaced及原全部父指纹/Eq/afterdigest/真实批准ADR完整，且result已无碰撞，才解对应父typed碰撞；result碰撞永fatal。
+
+variant替代和非documentation历史current-ref的普通强替代都核真实结果事实：canonical owner和Eq具名matched场景必须共同引用完整replacement source_ref；从result Git实际读取blob/mode/锚/原path role，SHA/mode相符且path role恰等原plain role。declared字段不能覆盖实际role，源码/测试不得用文稿locator顶替；聚合没有默认role。每原rawref均显式绑定，任一丢失/字段/父FP/ADR不符/未matched都阻断。
+
+新增严格可选resolution字段current_reference_replacements和source_dependency_variant_replacements沿同一原完整replacement/Eq/ADR验证器。原B historical_reference_migrations仍只documentation，非doc真实same-role入口不是文稿豁免；结果缺依赖/历史Git不可恢复/未映射其它错误永fatal。不自动判SDK24或125variants已经迁移，不增ignore开关/第二validator。
