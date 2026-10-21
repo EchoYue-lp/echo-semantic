@@ -6,8 +6,8 @@
 插件不替代 formatter、Lint、类型检查、单元测试、契约测试或集成测试。Skill 负责需要判断的工作，Hook 负责
 生命周期接线，校验器和 CI 负责确定性阻断。
 
-> 当前版本：`0.3.0`。本版本在语义资产盘点、候选归并、受控删除和行为等价验证之上新增多前置 revision 语义连续性门禁；仅沿用 `0.2.0` 的 Codex 安装与 Cursor 窗口证据，
-> `0.3.0` 的真实宿主重载、Claude Code 登录会话和 GitHub Runner 仍需发布时验收。首个公共发布许可证尚待项目所有者决定。
+> 当前版本：`0.5.0` 本地候选。本版本新增有依据的任务复用检查、局部验证、独立全项目扫描报告和用户定时接入说明；保留已有差异保护与多前置 revision 语义连续性门禁。
+> 自动测试和安装登记不等于真实宿主验收；Codex 新会话、Cursor 窗口重载、Claude Code 登录会话和 GitHub Runner 仍需单独验收。首个公共发布许可证尚待项目所有者决定。
 
 ## 解决什么问题
 
@@ -80,10 +80,10 @@ flowchart LR
 ```mermaid
 flowchart TD
   Request[新需求或插件单独触发] --> Scope{是否有明确任务?}
-  Scope -- 否 --> Maintenance[仓库语义维护]
+  Scope -- 否 --> Maintenance[等待用户任务或显式治理指令]
   Scope -- 是 --> Classify[bugfix / feature / refactor / contract / style]
   Classify --> Preflight[semantic-preflight]
-  Maintenance --> DiscoverAll[semantic-discover 全仓盘点]
+  Maintenance --> DiscoverAll[semantic-discover 全仓盘点（显式治理）]
   DiscoverAll --> StatusAll[semantic-status 汇总 Frontier]
   StatusAll --> ConsolidateAll[semantic-consolidate 形成候选]
   ConsolidateAll --> AuditAll[semantic-audit 全部已建边界]
@@ -108,7 +108,7 @@ flowchart TD
   ContinuityGate --> CI[CI 最终门禁]
 ```
 
-没有 Baseline 的项目先进入 `semantic-discover`。证据无法确定真实产品预期或风险接受时才使用 `semantic-decide`；它不替代正式设计。
+没有 Baseline 的开发任务直接从源码开展复用检查，首次建库由用户显式触发。证据无法确定真实产品预期或风险接受时才使用 `semantic-decide`；它不替代正式设计。
 
 ## 状态与权威
 
@@ -122,7 +122,9 @@ flowchart TD
 | 压缩恢复线索   | `.echo-semantic/continuation.json`        | 绑定任务、分支和证据摘要，最长 7 天                             |
 | 实现质量       | Formatter、Lint、类型与测试               | 代码质量权威，语义 Skill 不替代                                 |
 
-同一个 `.echo-semantic/` 同时保存长期语义材料和当前运行态；只有 `status.md`、`status.json`、`preflight.json`、`route.json`、`continuation.json` 这 5 个运行态文件写入 `.git/info/exclude`，不会提交。状态损坏或失效只会要求重新预检、重新路由或丢弃恢复提示。
+同一个 `.echo-semantic/` 保存长期语义材料、当前运行态和本地产物。`status.md`、`status.json`、`preflight.json`、`route.json`、`continuation.json`、`session-snapshot.json`、`stop-dedupe.json` 这 7 个运行态文件及 `local/` 写入 `.git/info/exclude`，不提交。状态损坏或失效只会要求重新预检、重新路由或丢弃恢复提示。
+
+日志、完整运行结果、临时脚本、候选补丁、源码副本和中间清单统一保存在 `.echo-semantic/local/<task-id>/`；CI 沿用其 Artifact。长期 Evidence 保留必要结论、命令、源码身份、限制与原件引用，不要求整套原件进入 Git。有效反例整理为正式测试，必要精简 fixture 可以提交。插件不自动清理本地产物。见[产物命令](docs/command-reference.md#本地产物与提交检查)。
 
 ## 能力
 
@@ -194,7 +196,7 @@ Codex 与 Claude Code 从插件约定路径 `hooks/hooks.json` 发现同一组�
 
 ## 项目采用
 
-1. 只触发插件且没有明确任务时，对已完成代码执行 `semantic-discover`、`semantic-audit` 和 `semantic-verify`。
+1. 只触发插件且没有明确任务时等待；用户显式要求全项目治理后再执行 `semantic-discover`、`semantic-audit` 和完整 `semantic-verify`。
 2. 有明确任务时只对该任务允许路径调用 `semantic-preflight`。
 3. 代码形成首个差异后调用 `semantic-diff`，高风险时进入 `semantic-audit`。
 4. 候选归并使用 `semantic-consolidate`；删除或替换使用 `semantic-repair` 并提供行为等价 Evidence。
@@ -205,9 +207,9 @@ merge、rebase、squash、cherry-pick 或大范围重构还应启用语义连续
 Behavior、Rule、Capability 场景、未决 Finding、未知项及验证依赖，只允许保留、明确替代或批准退役；文本合并成功和结果分支
 剩余测试通过都不能覆盖父版本事实。
 
-生成前预检状态写入同一个 `.echo-semantic/`，由 `.git/info/exclude` 只排除运行态文件；长期语义材料继续提交版本控制。
+生成前预检状态写入同一个 `.echo-semantic/`，由 `.git/info/exclude` 排除运行态文件和 `local/`；必要长期语义材料继续提交版本控制。
 
-会话开始时插件运行 `runtime/route.mjs`，先区分安装探测与真实 Hook 事件证据，再按当前项目、任务范围和已验证宿主能力选择 `bootstrap`、`maintenance`、`fast`、`standard`、`strict` 或 `idle` 路由；Stop 尚无新鲜事件证据时保持 `bootstrap`；
+会话开始时插件运行 `runtime/route.mjs`，先区分安装探测与真实 Hook 事件证据，再按当前项目、任务范围和已验证宿主能力选择 `bootstrap`、`maintenance`、`fast`、`standard`、`strict` 或 `idle` 路由；明确任务而 Stop 尚无新鲜事件证据时采用保守任务入口；无任务则等待；
 需要查看完整状态时调用 `semantic-status`：
 
 ```bash
@@ -266,8 +268,18 @@ npm run verify
 - 不提供数据库、常驻服务或第二套任务运行时。
 - 当前不提供 MCP Server；本地文件和 Git 已足以完成确定性校验。
 - Hook 不修改业务代码，也不自动生成语义结论。
-- 项目只使用一个 `.echo-semantic/` 目录；长期语义材料提交 Git，运行态文件本地排除。
+- 项目只使用一个 `.echo-semantic/` 目录；必要长期语义材料提交 Git，运行态文件和 `local/` 本地排除。
 
 ## 许可证
 
 当前仓库尚未声明开源许可证。在项目所有者选择并添加 `LICENSE` 前，仓库公开可见不等于授权复制、修改或分发。
+
+## 日常复用与全项目治理
+
+日常任务保存一次搜索范围、候选与理由，优先直接复用或扩展已有实现。schemaVersion: 2 任务记录绑定相关内容依据；旧记录需要重新预检。编辑和完成检查只针对当前任务，相关内容变化或越界仍会失败。普通任务与 `inventory.py --path` 不计算全项目源码摘要；局部结果不代表全项目闭合。
+
+全项目资产盘点和严格快照校验保留为显式入口。扫描报告现在支持安全保存、独立结构核对及确认后的源码核对；正式基线由确认后的语义维护流程更新。外部定时扫描由用户自行决定是否启用、周期、目标仓库和执行环境；插件提供调用入口、接入说明与验收方法，不内置固定调度或自动创建定时任务。项目原有完整工程检查继续执行。
+
+`inventory.py --write` 保存独立 Discovery 报告，内嵌资产和待确认候选，不覆盖正式材料。`--check-report` 支持无基线结构检查；实际用户确认后 `--confirm-report` 重扫当前源码，匹配后再维护正式语义。扫描只证明 static 范围，排除、未知与行为闭合分别报告。
+
+用户可按[定时扫描接入与验收说明](docs/scheduled-scanning.md) 配置自己的外部调度器。示例只提供调用方法，不安装定时任务，也不默认选择周期或项目。

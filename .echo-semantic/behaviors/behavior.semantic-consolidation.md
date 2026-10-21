@@ -8,15 +8,15 @@ risk: high
 primary_focus: state_authority
 focus: [contract_evidence, failure_concurrency]
 boundary: boundary.semantic-consolidation
-observed_at: source:dc28a20c48961826c028d86b3b6bcef6c0951ac085fec34fc2ee936bf8270380
+observed_at: source:4aee3f15c46918de495f7bfe0a3f4c45ddd24af4d2875cbb000e6becb5766912
 code_refs:
   - runtime/route.mjs#computeRoute
   - skills/semantic-discover/scripts/inventory.py#scan
-  - skills/semantic-consolidate/scripts/consolidate.py#write_finding
+  - skills/semantic-consolidate/scripts/consolidate.py#main
   - skills/semantic-repair/SKILL.md#受控语义修复
   - skills/semantic-contract/scripts/verify_semantic.py#validate_change_evidence
 rule_refs: [rule.single-semantic-authority]
-evidence_refs: [evidence.semantic-consolidation]
+evidence_refs: [evidence.semantic-consolidation, evidence.full-scan-report]
 finding_refs: []
 ---
 
@@ -49,3 +49,5 @@ finding_refs: []
 ## 裁决记录
 
 canonical owner、兼容期和是否退役能力由人确认；插件不替人决定删除产品能力。
+
+本次扫描输出独立 Discovery scan_report，内嵌待确认资产与候选；旧 --write 不再写入正式 Finding 或覆盖旧资产。扫描后核对当前源码和用户确认，再通过预检维护正式语义与完整验证，既有 repair 授权不变。

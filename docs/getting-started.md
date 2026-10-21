@@ -1,6 +1,6 @@
-# 快速开始（0.3.0）
+# 快速开始（0.5.0）
 
-本指南完成三件事：安装 `echo-semantic 0.3.0`、让一个 Git 项目建立语义基线、把代码变更及多分支候选接入生成前、生成后和语义连续性门禁。
+本指南完成三件事：安装 `echo-semantic 0.5.0`、让一个 Git 项目建立语义基线、把代码变更及多分支候选接入生成前、生成后和语义连续性门禁。
 
 ## 前置条件
 
@@ -113,7 +113,7 @@ Agent 应在目标项目创建：
 
 将 `.echo-semantic/` 与项目代码一起纳入版本控制。它是项目长期语义事实，不属于插件安装目录。
 
-插件单独触发且没有明确任务时，路由会对 Baseline 覆盖的已完成代码执行仓库级盘点、状态汇总、定向审查和验证；
+插件单独触发且没有明确任务时等待指令；全项目盘点、状态汇总、审查和验证由用户显式触发。日常任务有无基线均先查找相关能力并记录复用决定；
 有明确任务时，先用 `semantic-preflight` 限定本次行动项的允许路径。
 
 ## 完成第一次受治理变更
@@ -165,3 +165,7 @@ node bin/install.mjs uninstall claude-code
 - 阅读 [核心概念](concepts.md) 理解对象与路由；
 - 阅读 [项目架构与状态流转设计](supreme/specs/plugin-architecture/design.md) 了解完整控制面；
 - 遇到阻断时查看 [故障排查](troubleshooting.md)。
+
+## 全项目扫描报告
+
+使用 inventory.py --write 保存独立 Discovery 报告。扫描不覆盖正式 Asset、Finding 或基线；无 Baseline 也可运行 --check-report。实际用户确认后，通过 --confirm-report 核对当前源码，再用预检维护已确认语义材料并执行全项目验证。定时部署由用户自行配置，接入与验收方法见[用户定时扫描](scheduled-scanning.md)。

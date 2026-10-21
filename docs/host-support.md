@@ -1,6 +1,6 @@
 # 宿主支持
 
-`echo-semantic 0.3.0` 共享同一套 Skill、语义合同和运行时逻辑，Codex、Cursor、Claude Code 只在发现、事件名称、输出字段和安装投影上不同。
+`echo-semantic 0.5.0` 共享同一套 Skill、语义合同和运行时逻辑，Codex、Cursor、Claude Code 只在发现、事件名称、输出字段和安装投影上不同。
 
 ## 能力矩阵
 
@@ -87,8 +87,8 @@ node bin/install.mjs install cursor
 loadUserLocalPlugin echo-semantic rejected: symlink target ... is outside .../plugins/local
 ```
 
-安装后重新加载 Cursor 窗口；当前仅沿用 `0.2.0` 的既有窗口级手工检查证据，`0.3.0` 仍需在发布候选上重新加载验收。Cursor 使用 `sessionStart`、`preToolUse`、`preCompact` 和 `stop` 事件；字段名与 Claude Code 不同，
-但都进入 `hooks/entry.mjs` 的共享逻辑。`preToolUse` 失败返回 `permission: "deny"`；`stop` 不能阻断会话结束，失败时用
+安装后重新加载 Cursor 窗口；当前仅沿用 `0.2.0` 的既有窗口级手工检查证据，`0.5.0` 仍需在发布候选上重新加载验收。Cursor 使用 `sessionStart`、`preToolUse`、`preCompact` 和 `stop` 事件；SessionStart 的 `session_id` 与 Stop 的 `conversation_id` 表示同一会话，Stop 的 `loop_count` 表示重入次数，且 SessionStart 不提供 Claude Code 的 `source` 字段。
+这些字段在 `hooks/entry.mjs` 适配层归一化后进入共享逻辑。`preToolUse` 失败返回 `permission: "deny"`；`stop` 不能阻断会话结束，失败时用
 `followup_message` 拉回校验，最终阻断仍由 `preToolUse` 和 CI 负责。
 
 ## Claude Code
@@ -142,3 +142,7 @@ npm run probe
 5. 明确哪些能力仍需真实会话验收。
 
 宿主适配器不能复制语义对象模型、风险路由或校验器实现。
+
+## 任务范围合同与验收
+
+已有生命周期事件用于任务范围准入和 Stop 校验，未新增宿主事件。Node 准入复用 Python 完整预检合同，因此实际可用性还依赖该解释器；校验器不可用时拒绝写入。无基线任务也检查记录，旧字符串记录与旧完成收据需要重建。静态清单、模拟 Hook 和真实新会话/窗口重载分别验收。用户定时接入与验收见[说明](scheduled-scanning.md)，插件不替用户登记定时任务；未取得实际触发证据时不宣称通过。

@@ -42,7 +42,7 @@ test("PreCompact 保存继续包，resume 只恢复仍可信的任务", () => {
   writeFileSync(
     statePath,
     JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       pluginId: "echo-semantic",
       scope: "task",
       repositoryRoot: realpathSync(repository),
@@ -52,6 +52,13 @@ test("PreCompact 保存继续包，resume 只恢复仍可信的任务", () => {
       kind: "bugfix",
       risk: "low",
       allowedPaths: ["src"],
+      reuseCheck: {
+        searchPaths: ["."],
+        decision: "new",
+        reason: "夹具已进行名称与行为检索",
+        candidates: [],
+        evidence: [],
+      },
       reuse: ["复用现有能力"],
       verifications: ["定向测试"],
       basis: [],
@@ -114,6 +121,20 @@ test("PreCompact 保存继续包，resume 只恢复仍可信的任务", () => {
     "changed\n",
     "utf8",
   );
+  const unrelated = spawnSync("node", [hook, "codex", "session-start"], {
+    cwd: repository,
+    input: JSON.stringify({
+      cwd: repository,
+      source: "resume",
+      task_id: "task-continuation-test",
+    }),
+    encoding: "utf8",
+  });
+  assert.match(
+    JSON.parse(unrelated.stdout).hookSpecificOutput.additionalContext,
+    /任务继续包/,
+  );
+  writeFileSync(statePath, readFileSync(statePath, "utf8") + "\n");
   const stale = spawnSync("node", [hook, "codex", "session-start"], {
     cwd: repository,
     input: JSON.stringify({

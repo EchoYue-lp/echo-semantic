@@ -55,12 +55,15 @@ class ConsolidationTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             report = json.loads(result.stdout)
-            self.assertEqual(len(report["written_findings"]), 1)
-            finding = Path(report["written_findings"][0])
-            text = finding.read_text(encoding="utf-8")
-            self.assertIn("type: consolidation_candidate", text)
-            self.assertIn("status: open", text)
-            self.assertIn("decision: defer", text)
+            self.assertEqual(report["written_findings"], [])
+            self.assertTrue(Path(report["report_path"]).is_file())
+            self.assertFalse((root / ".echo-semantic/findings").exists())
+            self.assertTrue(
+                all(
+                    candidate["decision"] == "needs_review"
+                    for candidate in report["candidates"]
+                )
+            )
 
     def test_approved_decision_requires_canonical_from_selected_candidate(self) -> None:
         with tempfile.TemporaryDirectory(

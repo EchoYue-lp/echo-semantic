@@ -51,15 +51,25 @@ def git(root: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-def git_status(root: Path) -> str:
+def git_status(root: Path) -> bytes:
+    # 与 route.mjs 生产者一致：porcelain v1 -z 的原始字节，NUL 分隔。
     result = subprocess.run(
-        ["git", "-C", str(root), "status", "--porcelain=v1", "--untracked-files=all"],
+        [
+            "git",
+            "-C",
+            str(root),
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+        ],
         check=False,
         capture_output=True,
-        text=True,
     )
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "Git 状态读取失败")
+        raise RuntimeError(
+            result.stderr.strip().decode("utf-8", "replace") or "Git 状态读取失败"
+        )
     return result.stdout
 
 
@@ -133,6 +143,14 @@ def scan_objects(root: Path) -> dict[str, Any]:
 
 def preflight_state(root: Path, value: dict[str, Any] | None) -> dict[str, Any]:
     if value is None:
+        path = root / ".echo-semantic/preflight.json"
+        if path.exists() or path.is_symlink():
+            return {
+                "present": True,
+                "fresh": False,
+                "valid": False,
+                "reasons": ["预检记录无法解析，需要重新核对任务依据"],
+            }
         return {"present": False, "fresh": False}
     reasons = validate_preflight(
         value, root, current_head=git(root, "rev-parse", "HEAD")
@@ -215,16 +233,16 @@ def route_state(root: Path, value: dict[str, Any] | None) -> dict[str, Any]:
     current_head = git(root, "rev-parse", "HEAD")
     if value.get("headRevision") != current_head:
         reasons.append("路由 HEAD 已变化")
-    current_worktree_digest = hashlib.sha256(
-        git_status(root).encode("utf-8")
-    ).hexdigest()
+    current_worktree_digest = hashlib.sha256(git_status(root)).hexdigest()
     if value.get("worktreeDigest") != current_worktree_digest:
         reasons.append("路由工作树已变化")
     if value.get("route") not in ROUTES:
         reasons.append("路由无效")
     if not isinstance(value.get("host"), str) or not value.get("host"):
         reasons.append("宿主无效")
-    if not isinstance(value.get("skills"), list) or not value.get("skills"):
+    if not isinstance(value.get("skills"), list) or (
+        not value.get("skills") and value.get("route") != "idle"
+    ):
         reasons.append("入口列表无效")
     if not isinstance(value.get("changedPaths"), list) or not isinstance(
         value.get("highRiskPaths"), list
@@ -265,7 +283,9 @@ def route_state(root: Path, value: dict[str, Any] | None) -> dict[str, Any]:
             reasons.append(f"Hook 事件证据无效：{name}")
             continue
         try:
-            observed = datetime.fromisoformat(str(evidence.get("observedAt")))
+            observed = datetime.fromisoformat(
+                str(evidence.get("observedAt")).replace("Z", "+00:00")
+            )
             age = datetime.now(timezone.utc) - observed.astimezone(timezone.utc)
         except ValueError:
             reasons.append(f"Hook 事件时间无效：{name}")
@@ -295,13 +315,13 @@ def route_state(root: Path, value: dict[str, Any] | None) -> dict[str, Any]:
     if enforcement != expected_enforcement:
         reasons.append("执行能力与 Hook 事件证据不一致")
     if (
-        value.get("route") not in {"bootstrap", "maintenance"}
+        value.get("route") not in {"bootstrap", "maintenance", "idle"}
         and "stop" not in valid_evidence
     ):
         reasons.append("非 bootstrap 路由缺少停止 Hook 事件证据")
     updated_at = value.get("updatedAt")
     try:
-        timestamp = datetime.fromisoformat(str(updated_at))
+        timestamp = datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
         age = datetime.now(timezone.utc) - timestamp.astimezone(timezone.utc)
         if age < timedelta(0) or age > timedelta(hours=24):
             reasons.append("路由超过 24 小时有效期")
@@ -312,6 +332,13 @@ def route_state(root: Path, value: dict[str, Any] | None) -> dict[str, Any]:
 
 def continuation_state(root: Path, value: dict[str, Any] | None) -> dict[str, Any]:
     if value is None:
+        path = root / ".echo-semantic/continuation.json"
+        if path.exists() or path.is_symlink():
+            return {
+                "present": True,
+                "trusted": False,
+                "reasons": ["继续包无法解析，需要重新核对任务依据"],
+            }
         return {"present": False, "trusted": False}
     reasons: list[str] = []
     if value.get("schemaVersion") != 1:
@@ -339,7 +366,7 @@ def continuation_state(root: Path, value: dict[str, Any] | None) -> dict[str, An
             reasons.append(f"{field} 无效")
     updated_at = value.get("updatedAt")
     try:
-        timestamp = datetime.fromisoformat(str(updated_at))
+        timestamp = datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
         age = datetime.now(timezone.utc) - timestamp.astimezone(timezone.utc)
         if age < timedelta(0) or age > timedelta(days=7):
             reasons.append("超过 7 天有效期")
@@ -396,7 +423,7 @@ def visible_status_state(root: Path, value: dict[str, Any] | None) -> dict[str, 
     updated_at = value.get("updatedAt")
     age: timedelta | None = None
     try:
-        timestamp = datetime.fromisoformat(str(updated_at))
+        timestamp = datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
         age = datetime.now(timezone.utc) - timestamp.astimezone(timezone.utc)
         if age < timedelta(0) or age > timedelta(days=7):
             reasons.append("状态时间无效或过期")
@@ -425,16 +452,68 @@ def next_actions(
     route: dict[str, Any] | None,
     preflight: dict[str, Any],
     objects: dict[str, Any],
+    *,
+    continuation: dict[str, Any] | None = None,
+    visible_status: dict[str, Any] | None = None,
 ) -> list[str]:
+    # 查询只展示缺口；只有可信的显式仓库范围才推荐全项目治理。
+    # 待结算输入先于 idle 判断，不能把失效记录当作不存在而吞掉恢复入口。
+    if preflight.get("present") and not preflight.get("fresh"):
+        return ["semantic-preflight"]
     if (
-        baseline is None
-        or not baseline.get("present")
-        or not baseline.get("validStructure")
+        continuation
+        and continuation.get("present")
+        and (
+            continuation.get("trusted") is not True
+            or not preflight.get("fresh")
+            or not isinstance(preflight.get("taskId"), str)
+            or continuation.get("taskId") != preflight.get("taskId")
+        )
     ):
-        return ["semantic-discover", "semantic-verify"]
-    if baseline.get("inventoryClosure") != "closed":
-        return ["semantic-discover"]
-    if route and route.get("route") == "maintenance":
+        return ["semantic-preflight"]
+    if (
+        visible_status
+        and visible_status.get("event") == "stop"
+        and visible_status.get("effectiveState", visible_status.get("state"))
+        == "blocked"
+    ):
+        if visible_status.get("trusted") is not True:
+            return ["semantic-verify"]
+        return ["semantic-verify"] if preflight.get("fresh") else ["semantic-preflight"]
+    if continuation and continuation.get("present"):
+        # 继续包是线索，不是新的范围权威；只恢复同任务的局部入口。
+        local_next = continuation.get("next")
+        if local_next not in {
+            "semantic-preflight",
+            "semantic-diff",
+            "semantic-audit",
+            "semantic-verify",
+        }:
+            return ["semantic-preflight"]
+        if (
+            route
+            and route.get("present") is not False
+            and route.get("trusted") is not True
+        ):
+            return ["semantic-verify"]
+        return [local_next]
+    if route is None or route.get("present") is False:
+        return ["semantic-verify"] if preflight.get("fresh") else []
+    if route and route.get("trusted") is not True:
+        return ["semantic-verify"]
+    if (
+        route
+        and route.get("scope") == "repository"
+        and route.get("route") == "maintenance"
+    ):
+        if (
+            baseline is None
+            or not baseline.get("present")
+            or not baseline.get("validStructure")
+        ):
+            return ["semantic-discover", "semantic-verify"]
+        if baseline.get("inventoryClosure") != "closed":
+            return ["semantic-discover"]
         return [
             "semantic-discover",
             "semantic-status",
@@ -442,21 +521,17 @@ def next_actions(
             "semantic-audit",
             "semantic-verify",
         ]
-    if route and route.get("trusted") is not True:
-        return ["semantic-verify"]
-    if route and route.get("changedPaths") and not preflight.get("fresh"):
+    if route is None or route.get("route") == "idle":
+        return ["semantic-verify"] if preflight.get("fresh") else []
+    if not preflight.get("fresh"):
         return ["semantic-preflight"]
-    if objects["invalidObjects"]:
-        return ["semantic-verify"]
     if route and route.get("route") == "strict":
         return ["semantic-diff", "semantic-audit", "semantic-verify"]
     if route and route.get("route") == "standard":
         return ["semantic-diff", "semantic-verify"]
     if route and route.get("route") == "fast":
         return ["semantic-preflight", "semantic-verify"]
-    if objects["openFindings"] or objects["staleAudits"]:
-        return ["semantic-audit", "semantic-verify"]
-    return ["semantic-status"]
+    return ["semantic-verify"]
 
 
 def status(root: Path) -> dict[str, Any]:
@@ -497,7 +572,14 @@ def status(root: Path) -> dict[str, Any]:
         "visibleStatus": visible_status,
         "frontier": objects,
         "errors": errors,
-        "next": next_actions(baseline_for_actions, route, preflight, objects),
+        "next": next_actions(
+            baseline_for_actions,
+            route,
+            preflight,
+            objects,
+            continuation=continuation,
+            visible_status=visible_status,
+        ),
         "generatedAt": datetime.now(timezone.utc).isoformat(),
     }
 

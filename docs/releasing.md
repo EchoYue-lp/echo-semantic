@@ -2,11 +2,11 @@
 
 本文面向维护者，定义公共发布前需要满足的证据。它不替代 GitHub 仓库保护规则和宿主 marketplace 的正式发布流程。
 
-当前发布目标为 `0.3.0`。本版本交付多前置 revision 语义连续性门禁及对应文档/图示，版本号、三端 manifest、marketplace、Action 与测试必须作为一个变更集验收。
+当前本地候选版本为 `0.5.0`。本版本交付任务复用依据、局部验证、独立扫描报告和用户定时接入说明，版本号、三端 manifest、marketplace、Action 与测试必须作为一个变更集验收。版本同步与本地安装不代表已创建 tag、推送或公开发布。
 
 ## 版本策略
 
-- 当前项目版本为 `0.3.0`，正式提交和 tag 使用不带开发后缀的语义化版本；
+- 当前项目版本为 `0.5.0`，正式提交和 tag 使用不带开发后缀的语义化版本；
 - `+codex.<timestamp>` 只允许作为本地未提交的 Codex 开发 cachebuster；提交、PR 和发布前必须恢复为目标正式版本；
 - `.codex-plugin/plugin.json`、`.cursor-plugin/plugin.json`、`.claude-plugin/plugin.json`、`.claude-plugin/marketplace.json` 和 `package.json` 必须保持版本一致；
 - 每个正式版本必须在 `CHANGELOG.md` 记录 Codex 稳定性、用户可感知变化、合同或迁移影响、验证边界和已知限制；
@@ -47,6 +47,8 @@ uv run skills/semantic-contract/scripts/verify_semantic.py \
 10. 核对远端 tag 指向的提交与本地验收提交一致。
 
 ## 0.3.0 对账
+
+以下为历史版本对账，不作为 `0.5.0` 的现场加载证据。
 
 - 版本源：`package.json`、三个宿主 manifest 和 `.claude-plugin/marketplace.json` 均为 `0.3.0`；
 - 用户文档：README、核心概念、快速开始、宿主支持、适配说明、命令参考和本文均以 `0.3.0` 作为当前版本；

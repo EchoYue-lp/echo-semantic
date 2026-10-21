@@ -11,6 +11,179 @@ SCRIPT = ROOT / "skills" / "semantic-preflight" / "scripts" / "preflight.py"
 
 
 class PreflightTest(unittest.TestCase):
+    def test_repository_completion_scope_requires_explicit_cli_option(self):
+        args = [
+            "record",
+            "--root",
+            str(self.repository),
+            "--kind",
+            "bugfix",
+            "--risk",
+            "low",
+            "--allow",
+            "README.md",
+            "--search",
+            ".",
+            "--reuse-decision",
+            "new",
+            "--reuse",
+            "夹具复用调查",
+            "--verify",
+            "定向测试",
+            "--reuse-existing-boundary",
+            "现有边界",
+        ]
+        result = self.run_script(*args)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state_path = self.repository / ".echo-semantic/preflight.json"
+        self.assertEqual(
+            json.loads(state_path.read_text())["verificationScope"], "task"
+        )
+        result = self.run_script(*args, "--verification-scope", "repository")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(state_path.read_text())
+        self.assertEqual(state["verificationScope"], "repository")
+        self.assertEqual(state["scope"], "task")
+        self.assertFalse((self.repository / ".echo-semantic/baseline.md").exists())
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                str(ROOT / "skills/semantic-contract/scripts/verify_semantic.py"),
+                "--root",
+                str(self.repository),
+                "--repository-scope",
+                "--task-id",
+                state["taskId"],
+                "--base",
+                state["baseRevision"],
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("缺少", result.stderr)
+        self.assertTrue(state_path.exists())
+        self.assertFalse((self.repository / ".echo-semantic/baseline.md").exists())
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "平台没有 FIFO")
+    def test_incremental_check_rejects_non_regular_runtime_without_blocking(
+        self,
+    ) -> None:
+        path = self.repository / ".echo-semantic/preflight.json"
+        path.parent.mkdir()
+        os.mkfifo(path)
+        result = subprocess.run(
+            [
+                "python3",
+                str(SCRIPT),
+                "check",
+                "--root",
+                str(self.repository),
+                "--task-id",
+                "task",
+                "--compact",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("普通文件", result.stderr)
+
+    def test_same_task_cannot_lower_risk_or_remove_high_risk_signal(self) -> None:
+        self.write_semantic_rule()
+        common = [
+            "record",
+            "--root",
+            str(self.repository),
+            "--task-id",
+            "stable-task",
+            "--kind",
+            "bugfix",
+            "--allow",
+            "src",
+            "--search",
+            ".",
+            "--reuse-decision",
+            "new",
+            "--reuse",
+            "复用能力",
+            "--verify",
+            "定向测试",
+            "--reuse-existing-boundary",
+            "已有边界",
+        ]
+        high = self.run_script(
+            *common,
+            "--risk",
+            "high",
+            "--public-api",
+            "--basis",
+            "契约变更",
+            "--semantic-ref",
+            "rule.state-authority",
+        )
+        self.assertEqual(high.returncode, 0, high.stderr)
+        path = self.repository / ".echo-semantic/preflight.json"
+        before = path.read_bytes()
+        for risk in ["low", "high"]:
+            lowered = self.run_script(*common, "--risk", risk)
+            self.assertNotEqual(lowered.returncode, 0)
+            self.assertIn("不得降级", lowered.stderr)
+            self.assertEqual(path.read_bytes(), before)
+        new_task = self.run_script(*common, "--task-id", "new-task", "--risk", "low")
+        self.assertEqual(new_task.returncode, 0, new_task.stderr)
+
+    def test_task_bound_compact_check_does_not_renew_or_rewrite_record(self) -> None:
+        result = self.run_script(
+            "record",
+            "--root",
+            str(self.repository),
+            "--kind",
+            "bugfix",
+            "--risk",
+            "low",
+            "--task-id",
+            "task-one",
+            "--allow",
+            "src",
+            "--search",
+            ".",
+            "--reuse-decision",
+            "new",
+            "--reuse",
+            "复用现有边界",
+            "--verify",
+            "定向测试",
+            "--reuse-existing-boundary",
+            "现有能力",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        path = self.repository / ".echo-semantic/preflight.json"
+        before = path.read_bytes()
+        checked = self.run_script(
+            "check",
+            "--root",
+            str(self.repository),
+            "--task-id",
+            "task-one",
+            "--path",
+            "src/parser.py",
+            "--compact",
+        )
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        self.assertEqual(json.loads(checked.stdout)["taskId"], "task-one")
+        self.assertNotIn("reuse", json.loads(checked.stdout))
+        self.assertEqual(path.read_bytes(), before)
+        wrong = self.run_script(
+            "check", "--root", str(self.repository), "--task-id", "task-two"
+        )
+        self.assertNotEqual(wrong.returncode, 0)
+        self.assertIn("任务", wrong.stderr)
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="echo-preflight-")
         self.repository = Path(self.temporary.name)
@@ -75,6 +248,10 @@ class PreflightTest(unittest.TestCase):
             "low",
             "--allow",
             "src",
+            "--search",
+            ".",
+            "--reuse-decision",
+            "new",
             "--reuse",
             "复用现有解析器",
             "--verify",
@@ -103,6 +280,10 @@ class PreflightTest(unittest.TestCase):
             "high",
             "--allow",
             "src",
+            "--search",
+            ".",
+            "--reuse-decision",
+            "new",
             "--reuse",
             "没有可复用公共接口",
             "--verify",
@@ -131,6 +312,10 @@ class PreflightTest(unittest.TestCase):
             "high",
             "--allow",
             "src",
+            "--search",
+            ".",
+            "--reuse-decision",
+            "new",
             "--reuse",
             "finding.repair",
             "--verify",
@@ -167,6 +352,10 @@ class PreflightTest(unittest.TestCase):
             "high",
             "--allow",
             "src",
+            "--search",
+            ".",
+            "--reuse-decision",
+            "new",
             "--reuse",
             "复用现有接口",
             "--verify",
@@ -196,6 +385,10 @@ class PreflightTest(unittest.TestCase):
             "low",
             "--allow",
             "src",
+            "--search",
+            ".",
+            "--reuse-decision",
+            "new",
             "--reuse",
             "复用现有解析器",
             "--verify",
@@ -221,6 +414,10 @@ class PreflightTest(unittest.TestCase):
             "low",
             "--allow",
             "src",
+            "--search",
+            ".",
+            "--reuse-decision",
+            "new",
             "--reuse",
             "复用现有解析器",
             "--verify",
@@ -229,7 +426,9 @@ class PreflightTest(unittest.TestCase):
             "扩展现有解析边界",
         )
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("无法读取 .git/info/exclude", result.stderr)
+        self.assertIn(
+            "无法把 Echo Semantic 运行态加入 .git/info/exclude", result.stderr
+        )
         self.assertFalse((self.repository / ".echo-semantic/preflight.json").exists())
         shutil.rmtree(exclude)
 
@@ -244,6 +443,10 @@ class PreflightTest(unittest.TestCase):
             "high",
             "--allow",
             "src",
+            "--search",
+            ".",
+            "--reuse-decision",
+            "new",
             "--reuse",
             "复用现有状态机",
             "--verify",
@@ -270,6 +473,10 @@ class PreflightTest(unittest.TestCase):
             "high",
             "--allow",
             "src",
+            "--search",
+            ".",
+            "--reuse-decision",
+            "new",
             "--reuse",
             "复用现有状态机",
             "--verify",
@@ -306,6 +513,10 @@ class PreflightTest(unittest.TestCase):
             "high",
             "--allow",
             "src",
+            "--search",
+            ".",
+            "--reuse-decision",
+            "new",
             "--reuse",
             "复用现有状态机",
             "--verify",

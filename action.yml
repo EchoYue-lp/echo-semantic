@@ -35,6 +35,13 @@ inputs:
 runs:
   using: composite
   steps:
+    - name: 检查候选提交的产物边界
+      shell: bash
+      env:
+        ARTIFACT_ROOT: ${{ inputs.root }}
+        ARTIFACT_BASE: ${{ inputs.base }}
+      run: |
+        python3 "$GITHUB_ACTION_PATH/scripts/artifact_contract.py" --root "$ARTIFACT_ROOT" --base "$ARTIFACT_BASE"
     - name: 执行语义治理门禁
       shell: bash
       run: |

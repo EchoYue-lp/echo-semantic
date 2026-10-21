@@ -1,6 +1,39 @@
 # 命令参考
 
-除宿主原生命令外，以下命令都在 `echo-semantic 0.3.0` 仓库根目录运行。目标项目参数应使用绝对路径，减少工作目录歧义。
+## 显式全项目完成与 Stop
+
+普通任务预检默认 `verificationScope: task`。用户明确要求 Baseline 更新或全项目完成验证时，在原 record 参数中增加 `--verification-scope repository`；旧记录缺少该字段时仍按 task 处理。该选项不扩大 allowedPaths、不自动建库或扫描。
+
+```bash
+uv run skills/semantic-contract/scripts/verify_semantic.py --root <仓库绝对路径> \
+  --repository-scope --task-id <预检任务标识> --base <预检基准> \
+  --session-id <真实宿主会话标识> --require-change-evidence
+```
+
+这个完成入口输出 JSON：scope=repository，repositorySnapshot 绑定全仓源码，contentDigest 绑定任务及正式语义材料。必须与预检范围匹配，并完成严格校验。Stop 自动选择有效预检声明的完成入口，成功才保存范围收据并消费预检；单独运行 `--strict-snapshot` 不会生成 Stop 收据。失败保留预检，不手动填写收据。已安装旧插件需经正常安装流程更新，源码夹具执行不能代替 GUI/新会话加载验收。
+
+repository 收据重入会真实重验完整材料和任务依据，包括被 Git 忽略的文件；普通 task 收据保持轻量。内部只读检查入口 `--repository-receipt-check` 可与 `--task-evidence-stdin` 配合，从 stdin 接收原收据的路径摘要映射，不能混用任务、基准或连续性参数；该命令不会生成成功收据。瞬时身份观察和项目状态锁防止验证后内容变化或新任务记录被旧 Stop 结算。
+
+## 本地产物与提交检查
+
+在插件根目录执行目录准备，或将脚本路径替换为已安装插件的绝对路径：
+
+```bash
+node scripts/artifacts.mjs prepare --root <仓库绝对路径> --task-id <安全任务标识>
+```
+
+返回 `.echo-semantic/local/<task-id>/` 的绝对路径，设置 `.git/info/exclude` 并核对忽略生效。任务标识为至多 128 字符的安全单目录名；不接受路径分隔符、冒号、末尾点及 Windows 保留名。遇到已跟踪产物、符号链接或忽略失败时拒绝，不覆盖文件。日志、结果和临时文件共享目录，不自动清理。
+
+只有已获暂存/提交授权时才执行相应 Git 动作；以下检查本身不会执行它们：
+
+```bash
+python3 scripts/artifact_contract.py --root <仓库绝对路径> --staged
+python3 scripts/artifact_contract.py --root <仓库绝对路径> --base <Git基准>
+```
+
+`--staged` 核对索引身份，`--base` 核对当前 HEAD tree；工作区文件不能替代候选版本。输出 JSON 的 errors 非空退出 1，输入/Git 观察失败退出 2，只有 warnings 退出 0。明确运行态/local 路径阻断，普通疑似日志仅提示；清理删除允许，合法 fixture 不按后缀禁止。现有 GitHub Action 先执行候选产物检查，不自动安装 Git Hook。
+
+除宿主原生命令外，以下命令都在 `echo-semantic 0.5.0` 仓库根目录运行。目标项目参数应使用绝对路径，减少工作目录歧义。
 
 ## 安装器
 
@@ -54,7 +87,7 @@ node runtime/route.mjs \
 ```
 
 输出包含 `route`、`scope`、`skills`、`changedPaths`、`highRiskPaths`、`enforcement`、静态 `capabilities`、安装探测 `runtimeProbe` 和真实事件
-`hookEvidence`。没有明确任务且没有工作树变化时为 `maintenance`；明确任务通过有效预检后按任务范围路由。手工运行不会伪造 Hook 事件证据。
+`hookEvidence`。没有明确任务且没有工作树变化时为 `idle`；`--scope repository` 才选择全项目维护；明确任务通过有效预检后按任务范围路由。手工运行不会伪造 Hook 事件证据。
 路由结果同时写入目标仓库 `.echo-semantic/route.json`，并更新 `status.md` 和 `status.json`。
 
 ## 语义连续性门禁
@@ -99,19 +132,18 @@ uv run skills/semantic-discover/scripts/inventory.py \
   --root /absolute/project/path --path src/example.py
 ```
 
-增加 `--write` 才写入 `.echo-semantic/assets/` 和 Discovery；静态重复只形成候选，不自动合并或删除。
+全项目盘点增加 `--write` 只保存独立 Discovery 扫描报告；局部 `--path` 只输出 task 报告，不写入全局材料。静态重复只形成候选，不自动合并或删除。
 
 ## 候选归并
 
-将候选写成等待人工决策的 Finding：
+查看候选并保存待人工确认的扫描报告：
 
 ```bash
 uv run skills/semantic-consolidate/scripts/consolidate.py \
   --root /absolute/project/path --boundary <已有 boundary id> --write
 ```
 
-候选默认是 `defer`，确认 canonical owner 后才能进入 `semantic-repair`。批准归并时使用 `--candidate-id` 和属于该候选簇的
-`--canonical-asset`，避免把一个实现误套到其它候选。
+写入只保存 `needs_review` 候选报告，`written_findings` 为空。实际用户确认并核对当前源码后，通过预检维护正式 Finding 和 canonical owner；正式批准与等价证据完成后才可进入 `semantic-repair`。CLI 的批准参数不能与报告保存混用。
 
 ## 受控修复与删除
 
@@ -122,7 +154,7 @@ uv run skills/semantic-preflight/scripts/preflight.py record \
   --root /absolute/project/path \
   --kind refactor --risk high \
   --allow src \
-  --reuse finding.consolidation.example \
+  --search src --reuse-decision new --reuse "已核对候选差异" \
   --verify "project test" \
   --repair-ref finding.consolidation.example \
   --delete-path src/legacy.py \
@@ -139,6 +171,22 @@ repair Finding 需要在对象中声明 `delete_paths`、`replacement_refs` 和 
 
 ## 生成前预检
 
+### 已有差异处置
+
+首次发现已有差异时先询问用户，未答复只读、不修改或交付。以下命令只盘点或记录明确答复，不进行提交、清理，也不生成验证成功收据。宿主会话标识来自 SessionStart，不按任务 id 猜测。
+
+`inspect` 的 `presentation` 提供用户可见盘点所需的状态分类和嵌套仓库摘要。助手必须展示具体差异、判断与本任务的重叠关系，并给出一个带事实理由的推荐；不能只转述存在差异或把推荐当作用户答复。
+
+```bash
+node scripts/session-changes.mjs inspect --root <仓库绝对路径> --session-id <宿主会话标识>
+node scripts/session-changes.mjs decide --root <仓库绝对路径> --session-id <宿主会话标识> \
+  --fingerprint <inspect 当前指纹> --strategy preserve --basis <用户明确答复依据>
+```
+
+`--strategy` 为 `preserve`、`readonly` 或 `adopt`；仅 `adopt` 必须提供一个或多个 `--path <当前已有差异路径>`，其它路径保持保护。接管后仍需有效预检和完成验证，指纹变化后不能沿用旧答复。Skill 加载目录内也提供同名 `scripts/session-changes.mjs` 入口。
+
+`decide --fingerprint` 必须使用询问前保存的 `questionFingerprint`。等待答复期间观察变化时，调用 `refresh --root <仓库绝对路径> --session-id <宿主会话标识>` 显式更新待裁决盘点，再询问用户；refresh 只撤销旧裁决并记录新观察，不授权写入，不更新原会话起始内容指纹。
+
 最小示例：
 
 ```bash
@@ -148,7 +196,7 @@ uv run skills/semantic-preflight/scripts/preflight.py record \
   --risk medium \
   --allow src \
   --allow tests \
-  --reuse existing.capability \
+  --search src --reuse-decision new --reuse "名称和行为检索未找到适用实现" \
   --verify "project test command" \
   --reuse-existing-boundary "扩展现有能力边界"
 ```
@@ -187,6 +235,26 @@ uv run skills/semantic-preflight/scripts/preflight.py check \
   --root /absolute/project/path \
   --path src/example.rs
 ```
+
+同一任务增量检查并只输出摘要（不写入、不续期）：
+
+record 通过插件已要求的 Node 20+ 运行态模块复用项目锁，串行完成最新记录比较与写入；check 仍只需 Python 和 Git。
+
+```bash
+python3 skills/semantic-preflight/scripts/preflight.py check \
+  --root /absolute/project/path --task-id <原任务标识> \
+  --path src/example.rs --compact
+```
+
+任务不匹配、HEAD/设计权威变化、引用缺失或记录过期均拒绝；同一任务重新 record 不得降低风险或移除高风险信号。新增目标、授权、范围和依据变化仍须补充预检，不能仅凭 check 认定调查事实仍有效。
+
+显式运行临时夹具基准：
+
+```bash
+npm run benchmark:preflight -- 7
+```
+
+输出路由与 CLI 检查的 p50/p95、路由 Git 调用数及读取字节；不测量真实宿主和助手调查，也不执行后台采集。详见 [性能优化设计](designs/preflight-performance.md)。
 
 清除当前预检：
 
@@ -242,3 +310,30 @@ npm run verify
 ```
 
 `.echo-semantic/` 中的长期语义 Markdown 正常提交；上述 5 个运行态文件由插件写入 `.git/info/exclude`，不进入提交。
+
+## 有依据的复用记录与局部完成验证
+
+`record` 必须提供 `--search` 和 `--reuse-decision reuse|extend|new`。`--candidate` 是 JSON 对象，包含 path、symbol、selected、reason；复用或扩展必须有选定候选，new 不能选定候选。`--evidence` 固定内容摘要，`--mutable-evidence` 标识任务可修改依据，不能越出 allowedPaths。语义引用自动按合同文件名定位并纳入依据；需修改这些对象时显式声明 mutable evidence。
+
+```bash
+uv run skills/semantic-contract/scripts/verify_semantic.py \
+  --root /absolute/project/path --task-scope --task-id current-task \
+  --base <预检基准> --require-change-evidence
+```
+
+存在已有差异时提供真实 `--session-id`；校验器核对已确认的会话保护策略。输出 JSON 为 task 范围，不运行全局路径分类或源码摘要。没有基线也可使用。显式全项目严格校验仍使用前文 `--strict-snapshot`，两者不能混用。CLI 不替代工程测试或语义审查。
+
+## 扫描报告核对与基线维护
+
+```bash
+uv run skills/semantic-discover/scripts/inventory.py \
+  --root /absolute/project/path --check-report <已保存报告绝对路径>
+
+uv run skills/semantic-discover/scripts/inventory.py \
+  --root /absolute/project/path --confirm-report <已保存报告绝对路径> \
+  --confirmation "用户已明确确认报告中的候选和语义事实"
+```
+
+结构核对支持无 Baseline 项目。确认核对必须在用户真实答复后执行，报告或源码变化会拒绝；`baselineUpdated` 固定为 false。随后通过预检维护已确认语义材料，执行全项目严格和工程验证。旧 `--write` 不再覆盖 Asset、Finding 或 `discovery.semantic-assets.md`；脚本消费者应读取 `report_path`。长期扫描报告位于 `.echo-semantic/discovery/`，不排除提交，任务运行态保持不变。
+
+通用外部调度与 cron 配置示例、模拟环境及真实触发验收见[用户定时扫描](scheduled-scanning.md)。周期、项目、工具环境和日志位置由用户配置。

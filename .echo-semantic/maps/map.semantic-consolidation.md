@@ -4,7 +4,7 @@ id: map.semantic-consolidation
 kind: capability_map
 title: 老项目语义资产整合
 risk: high
-observed_at: source:dc28a20c48961826c028d86b3b6bcef6c0951ac085fec34fc2ee936bf8270380
+observed_at: source:4aee3f15c46918de495f7bfe0a3f4c45ddd24af4d2875cbb000e6becb5766912
 boundary_refs: [boundary.semantic-consolidation]
 behavior_refs: [behavior.semantic-consolidation]
 rule_refs: [rule.single-semantic-authority]
@@ -28,7 +28,7 @@ scenarios:
   candidate-consolidation:
     status: mapped
     source_refs:
-      [skills/semantic-consolidate/scripts/consolidate.py#write_finding]
+      [skills/semantic-consolidate/scripts/consolidate.py#main]
     rule_refs: [rule.single-semantic-authority]
   controlled-repair:
     status: mapped
@@ -77,3 +77,5 @@ Asset 盘点产生候选，候选 Finding 经人工决策后才能进入 repair�
 ## 未展开项
 
 语言特有 AST、动态运行时追踪和生产流量采样按采用方项目需求接入，未内置常驻服务。
+
+本次扫描输出独立 Discovery scan_report，内嵌待确认资产与候选；旧 --write 不再写入正式 Finding 或覆盖旧资产。扫描后核对当前源码和用户确认，再通过预检维护正式语义与完整验证，既有 repair 授权不变。

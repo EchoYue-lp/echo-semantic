@@ -12,5 +12,7 @@
 `inventory_closure` 只表达当前路径与风险视角是否已有去向；`behavior_model_closure` 只表达能力场景是否已经充分展开。
 两者都不表示插件没有缺陷。
 
-本目录中的长期 Markdown 材料用于约束 Echo Semantic 自身开发，必须随代码提交 GitHub。仅根级 `status.md`、`status.json`、
-`preflight.json`、`route.json`、`continuation.json` 是可丢弃运行态，由 `.git/info/exclude` 精确排除，不得提交。
+本目录中必要的长期 Markdown 材料用于约束 Echo Semantic 自身开发，随代码版本管理。根级 `status.md`、`status.json`、
+`preflight.json`、`route.json`、`continuation.json`、`session-snapshot.json`、`stop-dedupe.json` 是可丢弃运行态，和 `local/` 一起由 `.git/info/exclude` 排除，不得提交。
+
+日志、完整结果、临时脚本、补丁、源码副本和中间清单统一放在 `local/<task-id>/`，不属于语义对象或正式源码引用；长期 Evidence 只提炼必要结论和原件位置。目录准备使用插件 `scripts/artifacts.mjs prepare`，CI 产物沿用 Artifact。不自动清理或上传本地产物。

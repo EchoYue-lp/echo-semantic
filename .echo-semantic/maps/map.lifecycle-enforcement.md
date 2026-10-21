@@ -4,7 +4,7 @@ id: map.lifecycle-enforcement
 kind: capability_map
 title: 生命周期 Hook 与确定性门禁
 risk: high
-observed_at: source:dc28a20c48961826c028d86b3b6bcef6c0951ac085fec34fc2ee936bf8270380
+observed_at: source:4aee3f15c46918de495f7bfe0a3f4c45ddd24af4d2875cbb000e6becb5766912
 boundary_refs: [boundary.lifecycle-enforcement]
 behavior_refs: [behavior.post-change-verification]
 rule_refs: [rule.high-risk-evidence, rule.engineering-tools-own-style]
@@ -34,6 +34,17 @@ scenarios:
     status: mapped
     source_refs: [hooks/entry.mjs#function stop]
     evidence_refs: [evidence.lifecycle-hooks]
+  session-stop-attribution:
+    status: mapped
+    source_refs:
+      [hooks/entry.mjs#function writeSessionSnapshot, runtime/project-state.mjs#updateProjectJson]
+    behavior_refs: [behavior.post-change-verification]
+    evidence_refs: [evidence.lifecycle-hooks]
+  existing-changes-disposition:
+    status: mapped
+    source_refs: [runtime/session-state.mjs#decideSessionChanges, scripts/session-changes.mjs#presentationFor, hooks/entry.mjs#sessionContext]
+    behavior_refs: [behavior.post-change-verification]
+    evidence_refs: [evidence.lifecycle-hooks]
   continuation-checkpoint:
     status: mapped
     source_refs:
@@ -44,9 +55,21 @@ scenarios:
     status: mapped
     source_refs: [action.yml#执行语义治理门禁]
     rule_refs: [rule.engineering-tools-own-style]
+  local-artifact-boundary:
+    status: mapped
+    source_refs: [runtime/project-state.mjs#prepareTaskArtifactDirectory, scripts/artifact_contract.py#check_artifacts, tests/test_artifacts.py#ArtifactTests]
+    behavior_refs: [behavior.post-change-verification]
+    evidence_refs: [evidence.semantic-workflow]
+  explicit-repository-stop:
+    status: mapped
+    source_refs: [hooks/entry.mjs#verificationScope, skills/semantic-contract/scripts/verify_semantic.py#repository_scope, scripts/preflight_contract.py#verificationScope, tests/hooks.test.mjs#Baseline必须显式全项目验证]
+    behavior_refs: [behavior.post-change-verification]
+    evidence_refs: [evidence.lifecycle-hooks]
 ---
 
 # 生命周期门禁
+
+本轮修复覆盖原生工作根与实际目标 Git 根不一致：全部补丁目标必须属于同一 Git 根，跨根准入要求目标仓已有本会话观察与预检。成功准入根绑定只保存在既有会话运行态，Stop/PreCompact 按根、HEAD、会话及 taskId 重验；routingOnly 不作为起始快照。符号链接、多根补丁和无 Git 工作根跨根写入拒绝。共享入口以规范 PLUGIN_ROOT 识别 Codex，兼容 Claude 别名；fork 也建立起始观察。原生现场恢复仍由原 writer 验收。
 
 ## 能力范围
 
@@ -62,7 +85,7 @@ Claude Code 与 Cursor 的编辑前 Hook 提供实时阻断，Codex 在 Stop 时
 
 ## 状态与数据流
 
-Hook 只读取项目语义材料和当前任务预检；继续包和真实 Hook 事件证据位于同一 `.echo-semantic/` 目录，分别绑定证据摘要以及宿主/插件版本与时间窗，不建立业务数据库。
+Hook 只读取项目语义材料、当前任务预检和 Git 已报告的差异路径；继续包、按会话隔离的起始快照/失败去重记录和真实 Hook 事件证据位于同一 `.echo-semantic/` 目录，分别绑定内容或证据摘要以及宿主/插件版本与时间窗，不建立业务数据库。
 
 ## 策略来源与优先级
 
@@ -70,15 +93,15 @@ Hook 只读取项目语义材料和当前任务预检；继续包和真实 Hook 
 
 ## 生命周期与失败路径
 
-校验器不可用、摘要漂移、引用失效、越界修改和缺少高风险依据都会返回非零；继续包失效只丢弃恢复上下文。宿主仅被检测到但没有对应真实 Hook 事件证据时，路由保持 `bootstrap` 且 `enforcement` 为 false。
+校验器不可用、摘要漂移、引用失效、越界修改和缺少高风险依据都会返回非零；继续包失效只丢弃恢复上下文。相同缺预检失败的重入 Stop 不重复阻断，但内容或结算证据变化后恢复判定；并发会话分别读取自己的快照和去重记录。宿主仅被检测到但没有对应真实 Hook 事件证据时，路由保持 `bootstrap` 且 `enforcement` 为 false。
 
 ## 权限与敏感信息
 
-Hook 不上传内容；验收探针只有显式环境变量存在时才写入本地事件元数据。
+Hook 不上传内容；工作树指纹不读取无差异文件，差异内容在真实仓库根与 fd 身份校验后只进入内存摘要且不写入运行态或日志；用户可见盘点只投影路径、状态、revision 和数量，不输出完整差异内容。快照、去重、路由、预检与 Stop 结算读取拒绝 symlink 和超过 1 MiB 的内容。继续包原有读取边界仍需单独审查。验收探针只有显式环境变量存在时才写入本地事件元数据。
 
 ## 用户侧投影
 
-失败原因通过 stderr 和宿主阻断消息返回 Agent，便于修复后重试。
+失败原因通过 stderr 和宿主阻断消息返回 Agent，便于修复后重试；已有差异裁决先展示具体事实、与当前任务的重叠判断及带理由的唯一推荐，再请求用户选择。
 
 ## 场景处置清单
 

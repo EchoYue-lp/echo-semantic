@@ -23,14 +23,17 @@ uv run scripts/status.py --root <项目绝对路径>
 
 ## 路由
 
-- 没有基线：进入 `semantic-discover`；
-- 库存未闭合：继续 `semantic-discover`；
-- 只有文档、配置或测试变化：采用 `fast` 路由，执行预检和工程验证；
-- 有代码差异但无预检：进入 `semantic-preflight`；
-- 没有明确任务且没有工作树变化：进入 `maintenance`，执行全仓 `semantic-discover`、`semantic-status`、`semantic-audit` 和 `semantic-verify`；
-- 严格路由：依次进入 `semantic-diff`、必要的 `semantic-audit` 和 `semantic-verify`；
-- 开放 Finding 或 stale Audit：进入定向 `semantic-audit`；
-- 只缺确定性证据：进入 `semantic-verify`。
+- 纯状态查询且没有明确任务或待结算预检：展示当前缺口，等待用户指令，`next` 可为空；无基线、库存开放或全局 Finding/Audit 缺口不自动触发发现或全仓维护。
+- 路由缺失或 `idle` 不表示没有恢复工作：存在但过期、内容失效或无法解析的预检先进入局部 `semantic-preflight`；保留原记录与错误，不自动清除或生成新授权。
+- 存在继续包时，缺少有效预检、继续包失效或任务不匹配，都先重新核对局部预检。只有继续包可信且绑定同一有效任务时，才按其 `next` 恢复预检、影响分析、定向审查或局部验证；不从继续包继承发现、全仓维护或 repository 范围。
+- Stop 阻断状态与预检、继续包一起判断：有效预检继续局部 `semantic-verify`，缺失或失效则回到局部预检。不可信的阻断提示只用于诊断，不采纳其范围升级建议，也不吞掉待结算输入。
+- 只有可信路由明确声明 `scope: repository` 且为 `maintenance` 时才推荐全项目治理：基线缺失或失效推荐发现与验证，库存开放推荐发现，其余推荐发现、状态、归并、定向审查与验证。
+- 有任务但没有有效预检：进入 `semantic-preflight`；有无基线都先查找相关实现并限定任务范围。
+- 有效任务的 `standard` 路由：进入 `semantic-diff` 和任务范围 `semantic-verify`；`strict` 只增加相关边界的 `semantic-audit`，不升级全仓维护。
+- `fast` 路由执行任务增量预检与工程验证；其它有有效预检的任务继续任务完成验证，不重复全量调查。
+- 路由证据不可信时推荐 `semantic-verify` 核对范围与依据；这种诊断不授权自动建库、全项目扫描或修复。
+
+基线、库存、开放 Finding 和失效 Audit 继续如实展示，但状态投影不是写入授权，不得把全局缺口变成每个小任务的前置门禁。输出的下一入口始终受用户已经确认的任务与范围约束。
 
 继续包只用于短期恢复。仓库、分支、有效期或证据摘要不匹配时显示失效原因，并回到当前路由重新判断，不沿用旧 Frontier。
 

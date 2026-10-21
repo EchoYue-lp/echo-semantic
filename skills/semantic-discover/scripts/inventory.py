@@ -10,12 +10,21 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import stat
 import subprocess
+import sys
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 import yaml
+
+sys.dont_write_bytecode = True
+PLUGIN_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
+from preflight_contract import source_bytes
+from scan_contract import publish_report, report_digest, validate_scan_report
 
 SOURCE_SUFFIXES = {
     ".c",
@@ -125,25 +134,10 @@ def git_paths(root: Path) -> list[str]:
     return sorted(
         path
         for path in raw.decode("utf-8").split("\0")
-        if path and path != ".echo-semantic" and not path.startswith(".echo-semantic/")
+        if path
+        and path.casefold() != ".echo-semantic"
+        and not path.casefold().startswith(".echo-semantic/")
     )
-
-
-def source_digest(root: Path, paths: list[str]) -> str:
-    digest = hashlib.sha256()
-    for relative in paths:
-        path = root / relative
-        if path.is_symlink():
-            identity = "symlink:" + path.readlink().as_posix()
-        elif path.is_file():
-            identity = "file:" + hashlib.sha256(path.read_bytes()).hexdigest()
-        else:
-            continue
-        digest.update(relative.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(identity.encode("utf-8"))
-        digest.update(b"\n")
-    return digest.hexdigest()
 
 
 def current_revision(root: Path) -> str:
@@ -186,7 +180,9 @@ def base_asset(
         "risk": "medium"
         if asset_type in {"entrypoint", "state_authority", "protocol"}
         else "low",
-        "observed_at": f"source:{revision}",
+        "observed_at": revision
+        if revision.startswith("task:")
+        else f"source:{revision}",
         "boundary_refs": [],
         "code_refs": code_refs,
         "consumer_refs": [],
@@ -198,12 +194,18 @@ def base_asset(
     }
 
 
-def extract_assets(root: Path, relative: str, revision: str) -> list[dict[str, Any]]:
+def extract_assets(
+    root: Path, relative: str, revision: str, content: bytes | None = None
+) -> list[dict[str, Any]]:
     path = root / relative
-    if not path.is_file() or path.is_symlink():
+    if content is None and (not path.is_file() or path.is_symlink()):
         return []
     try:
-        text = path.read_text(encoding="utf-8")
+        text = (
+            content.decode("utf-8")
+            if content is not None
+            else path.read_text(encoding="utf-8")
+        )
     except (OSError, UnicodeError):
         return [base_asset("file", relative, revision, relative, [relative])]
 
@@ -230,7 +232,7 @@ def extract_assets(root: Path, relative: str, revision: str) -> list[dict[str, A
 
     pattern = SYMBOL_PATTERNS.get(suffix)
     if pattern:
-        for match in pattern.finditer(text):
+        for match in re.finditer(pattern.pattern, text, re.MULTILINE):
             name = match.group(1)
             line = text.count("\n", 0, match.start()) + 1
             assets.append(
@@ -303,7 +305,7 @@ def candidate_groups(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "label": name,
                 "asset_refs": ids,
                 "decision": "needs_review",
-                "reason": "多个文件声明相同符号名，尚未证明业务语义等价",
+                "reason": "内容或公开符号存在静态相似信号，尚未证明业务语义等价",
             }
         )
         for member in members:
@@ -312,109 +314,246 @@ def candidate_groups(assets: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return candidates
 
 
-def write_asset(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    frontmatter = yaml.safe_dump(data, allow_unicode=True, sort_keys=False).rstrip()
-    headings = ["资产身份", "来源与消费者", "生命周期", "候选关系", "未知与限制"]
-    body = "\n\n".join(
-        f"## {heading}\n\n已由语义资产盘点记录。" for heading in headings
+def capture(
+    root: Path, selected_paths: list[str] | None = None, *, retain_contents: bool = True
+) -> dict[str, Any]:
+    """绑定一次只读内容；不访问符号链接、已识别密钥或超限文件。"""
+    head = current_revision(root)
+    index = run_git(root, "ls-files", "--stage", "-z", binary=True)
+    all_paths = git_paths(root)
+    paths = (
+        all_paths
+        if not selected_paths
+        else [
+            p
+            for p in all_paths
+            if any(
+                p == prefix.rstrip("/") or p.startswith(prefix.rstrip("/") + "/")
+                for prefix in selected_paths
+            )
+        ]
     )
-    path.write_text(
-        f"---\n{frontmatter}\n---\n\n# 语义资产\n\n{body}\n", encoding="utf-8"
-    )
-
-
-def write_discovery(
-    root: Path,
-    revision: str,
-    digest: str,
-    assets: list[dict[str, Any]],
-    candidates: list[dict[str, Any]],
-    unresolved: list[str],
-) -> None:
-    data = {
-        "schema_version": 1,
-        "id": "discovery.semantic-assets",
-        "kind": "discovery",
-        "source_snapshot": {"base_revision": revision, "content_digest": digest},
-        "scope": "Git 可见路径、公开符号、入口、状态权威、协议字段、测试消费者和文档引用",
-        "inspected_paths": sorted(
-            {ref.split("#", 1)[0] for asset in assets for ref in asset["code_refs"]}
-        ),
-        "candidate_refs": [candidate["id"] for candidate in candidates],
-        "unresolved": unresolved,
+    contents: dict[str, bytes] = {}
+    manifest = {}
+    excluded = []
+    total = 0
+    for relative in paths:
+        path = root / relative
+        try:
+            info = path.lstat()
+        except FileNotFoundError:
+            manifest[relative] = {"kind": "missing"}
+            excluded.append({"path": relative, "reason": "工作树路径已删除"})
+            continue
+        name = path.name.lower()
+        reason = None
+        if path.is_symlink():
+            reason = "符号链接不读取目标"
+        elif (
+            name == ".env"
+            or name.startswith(".env.")
+            or name
+            in {
+                "credentials",
+                "credentials.json",
+                "secrets.json",
+                "id_rsa",
+                "id_ed25519",
+            }
+            or path.suffix.lower() in {".pem", ".key", ".p12", ".pfx"}
+        ):
+            reason = "密钥或敏感配置路径不读取内容"
+        elif not stat.S_ISREG(info.st_mode):
+            reason = "目录或子模块需要独立治理"
+        elif info.st_size > 8 * 1024 * 1024:
+            reason = "单文件超过有界读取限制"
+        if reason:
+            manifest[relative] = {
+                "kind": "excluded",
+                "mode": info.st_mode,
+                "size": info.st_size,
+                "mtime_ns": info.st_mtime_ns,
+                "ctime_ns": info.st_ctime_ns,
+            }
+            excluded.append({"path": relative, "reason": reason})
+            continue
+        content = source_bytes(root, relative)
+        total += len(content)
+        if total > 128 * 1024 * 1024:
+            raise ValueError("扫描内容超过 128 MiB；请拆分范围，不保存完整成功报告")
+        if retain_contents:
+            contents[relative] = content
+        manifest[relative] = {
+            "kind": "file",
+            "mode": info.st_mode,
+            "content_digest": hashlib.sha256(content).hexdigest(),
+        }
+    if (
+        head != current_revision(root)
+        or index != run_git(root, "ls-files", "--stage", "-z", binary=True)
+        or all_paths != git_paths(root)
+    ):
+        raise ValueError("扫描期间 HEAD、索引或路径集合变化")
+    digest = report_digest(manifest)
+    return {
+        "head": head,
+        "index_digest": hashlib.sha256(
+            index if isinstance(index, bytes) else index.encode()
+        ).hexdigest(),
+        "paths": paths,
+        "manifest": manifest,
+        "contents": contents,
+        "excluded": excluded,
+        "digest": digest,
     }
-    frontmatter = yaml.safe_dump(data, allow_unicode=True, sort_keys=False).rstrip()
-    body = (
-        "## 扫描范围\n\n已扫描 Git 可见路径。\n\n"
-        "## 候选事实\n\n已记录资产身份和同名符号候选。\n\n"
-        "## 归并结果\n\n候选只等待人工归并，不自动删除。\n\n"
-        "## 未决项\n\n动态注册、反射和运行时配置保持未知。\n"
+
+
+def report_document(report: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "id": f"discovery.scan.{report_digest(report)}",
+        "kind": "discovery",
+        "source_snapshot": report["source_snapshot"],
+        "scope": "repository",
+        "inspected_paths": report["paths"],
+        "candidate_refs": [c["id"] for c in report["candidates"]],
+        "unresolved": report["unresolved"],
+        "scan_report": report,
+    }
+
+
+def encode_report(data: dict[str, Any]) -> str:
+    return (
+        "---\n"
+        + yaml.safe_dump(data, allow_unicode=True, sort_keys=False).rstrip()
+        + "\n---\n\n# 全项目扫描候选报告\n\n## 扫描范围\n\n静态盘点，仅证明列出的文件与快照。\n\n## 候选事实\n\n嵌入 scan_report 的资产和重复候选等待人工核对，不确立唯一 owner。\n\n## 归并结果\n\n未执行业务修改或正式基线更新。\n\n## 未决项\n\n动态入口、不支持的解析、排除路径与行为等价检查保持未完成。\n"
     )
-    path = root / ".echo-semantic/discovery/discovery.semantic-assets.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        f"---\n{frontmatter}\n---\n\n# 语义资产发现\n\n{body}", encoding="utf-8"
+
+
+def parse_report(text: str) -> dict[str, Any]:
+    match = re.match(r"^---\s*\n([\s\S]*?)\n---\s*\n", text)
+    if match is None:
+        raise ValueError("报告缺少 frontmatter")
+    try:
+        data = yaml.safe_load(match.group(1))
+    except (yaml.YAMLError, RecursionError) as error:
+        raise ValueError("扫描报告 frontmatter 无法解析") from error
+    errors = validate_scan_report(data)
+    if errors:
+        raise ValueError("；".join(errors))
+    return data
+
+
+def check_report(root: Path, data: dict[str, Any], *, current: bool = False) -> None:
+    errors = validate_scan_report(data)
+    if errors:
+        raise ValueError("；".join(errors))
+    report = data["scan_report"]
+    if report["repository_root"] != str(root.resolve()):
+        raise ValueError("扫描报告属于其他仓库")
+    if current and scan(root, False) != report:
+        raise ValueError("扫描报告与当前源码或算法不一致，请重新扫描后再确认")
+
+
+def save_report(root: Path, report: dict[str, Any]) -> str:
+    data = report_document(report)
+    destination = root / ".echo-semantic/discovery" / (data["id"] + ".md")
+    result = subprocess.run(
+        [
+            "node",
+            str(PLUGIN_ROOT / "scripts/record-scan.mjs"),
+            "--root",
+            str(root),
+            "--python",
+            sys.executable,
+        ],
+        input=encode_report(data),
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
     )
+    if result.returncode:
+        raise ValueError(result.stderr.strip() or "扫描报告保存失败")
+    return str(destination)
 
 
 def scan(
     root: Path, write: bool, selected_paths: list[str] | None = None
 ) -> dict[str, Any]:
-    all_paths = git_paths(root)
-    if selected_paths:
-        allowed = tuple(
-            PurePosixPath(path).as_posix().rstrip("/") for path in selected_paths
-        )
-        paths = [
-            path
-            for path in all_paths
-            if any(
-                path == prefix or path.startswith(f"{prefix}/") for prefix in allowed
-            )
-        ]
-    else:
-        paths = all_paths
-    revision = current_revision(root)
-    digest = source_digest(root, all_paths)
-    assets = [
-        asset for relative in paths for asset in extract_assets(root, relative, digest)
-    ]
+    root = root.resolve()
+    if (
+        Path(str(run_git(root, "rev-parse", "--show-toplevel")).strip()).resolve()
+        != root
+    ):
+        raise ValueError("扫描必须使用 Git 仓库根")
+    if write and selected_paths:
+        raise ValueError("局部盘点只输出报告，不覆盖全项目 Discovery 或正式资产")
+    snapshot = capture(root, selected_paths)
+    scope = "task" if selected_paths else "repository"
+    observed = f"task:{snapshot['digest']}" if selected_paths else snapshot["digest"]
+    assets = []
     contents = {}
-    for relative in paths:
-        path = root / relative
-        if path.is_file() and not path.is_symlink():
-            contents[relative] = path.read_text(encoding="utf-8", errors="ignore")
-    for asset in assets:
-        if asset["asset_type"] != "symbol":
+    unresolved = []
+    for relative, content in snapshot["contents"].items():
+        try:
+            text = content.decode("utf-8")
+        except UnicodeError:
+            unresolved.append(relative + "：二进制内容未做语义解析")
             continue
-        name = str(asset["title"])
-        source_path = str(asset["code_refs"][0]).split("#", 1)[0]
-        asset["consumer_refs"] = [
-            relative
-            for relative, text in contents.items()
-            if relative != source_path and re.search(rf"\b{re.escape(name)}\b", text)
-        ]
+        contents[relative] = text
+        assets.extend(extract_assets(root, relative, observed, content))
+        if has_dynamic_markers(text):
+            unresolved.append(relative)
+        if (root / relative).suffix.lower() in SOURCE_SUFFIXES and (
+            root / relative
+        ).suffix.lower() not in SYMBOL_PATTERNS:
+            unresolved.append(relative + "：无公开符号解析器，需人工调查")
+    assets = list({asset["id"]: asset for asset in assets}.values())
+    for asset in assets:
+        if asset["asset_type"] == "symbol":
+            name = str(asset["title"])
+            source_path = str(asset["code_refs"][0]).split("#", 1)[0]
+            asset["consumer_refs"] = [
+                relative
+                for relative, text in contents.items()
+                if relative != source_path
+                and re.search(rf"\b{re.escape(name)}\b", text)
+            ]
     candidates = candidate_groups(assets)
-    unresolved = [
-        relative
-        for relative in paths
-        if (root / relative).suffix.lower() in SOURCE_SUFFIXES
-        and has_dynamic_markers(
-            (root / relative).read_text(encoding="utf-8", errors="ignore")
-        )
-    ]
+    after = capture(root, selected_paths, retain_contents=False)
+    if any(
+        snapshot[key] != after[key]
+        for key in ("head", "index_digest", "paths", "manifest")
+    ):
+        raise ValueError("扫描期间源码变化，不能生成一致报告")
     report = {
-        "schema_version": 1,
-        "source_snapshot": {"base_revision": revision, "content_digest": digest},
+        "schema_version": 2,
+        "repository_root": str(root),
+        "scope": scope,
+        "analysis": "static",
+        "result": "completed",
+        "paths": snapshot["paths"],
+        "source_snapshot": {
+            "base_revision": snapshot["head"],
+            "content_digest": snapshot["digest"],
+        },
+        "index_digest": snapshot["index_digest"],
+        "file_manifest": snapshot["manifest"],
         "assets": assets,
         "candidates": candidates,
         "unresolved": unresolved,
+        "excluded": snapshot["excluded"],
+        "limitations": [
+            "静态相似与文本消费者只提供线索，不能证明生产可达或行为等价",
+            "不读取密钥、排除路径或超限内容；覆盖缺口保留人工核对",
+            "未执行语义审计或工程测试，不证明全项目闭合",
+        ],
+        "globalClosure": "not_checked",
+        "behavior_model_closure": "open",
     }
     if write:
-        for asset in assets:
-            write_asset(root / ".echo-semantic/assets" / f"{asset['id']}.md", asset)
-        write_discovery(root, revision, digest, assets, candidates, unresolved)
+        report["report_path"] = save_report(root, report)
         report["written"] = True
     return report
 
@@ -426,17 +565,124 @@ def main() -> int:
         "--path", action="append", default=[], help="只盘点指定仓库相对路径"
     )
     parser.add_argument(
-        "--write", action="store_true", help="写入 .echo-semantic 长期对象"
+        "--write",
+        action="store_true",
+        help="只保存独立 Discovery 报告，不覆盖正式语义对象",
     )
+    parser.add_argument(
+        "--check-report", type=Path, help="独立校验已保存扫描报告，不要求 Baseline"
+    )
+    parser.add_argument(
+        "--confirm-report", type=Path, help="用户确认后核对报告与当前源码"
+    )
+    parser.add_argument(
+        "--confirmation", help="用户明确答复的脱敏依据；不是机器授权证明"
+    )
+    parser.add_argument(
+        "--validate-report-stdin", action="store_true", help=argparse.SUPPRESS
+    )
+    parser.add_argument("--publish-report", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     try:
-        print(
-            json.dumps(
-                scan(args.root.resolve(), args.write, args.path or None),
-                ensure_ascii=False,
-                indent=2,
+        root = args.root.resolve()
+        if args.check_report or args.confirm_report or args.validate_report_stdin:
+            if (
+                args.write
+                or args.path
+                or sum(
+                    bool(item)
+                    for item in (
+                        args.check_report,
+                        args.confirm_report,
+                        args.validate_report_stdin,
+                    )
+                )
+                != 1
+            ):
+                raise ValueError("报告检查不能混用扫描参数")
+            if args.confirm_report and not (
+                args.confirmation and args.confirmation.strip()
+            ):
+                raise ValueError("确认核对需要用户明确答复依据")
+            text = (
+                sys.stdin.read(16 * 1024 * 1024 + 1)
+                if args.validate_report_stdin
+                else source_bytes(
+                    root,
+                    (args.check_report or args.confirm_report)
+                    .absolute()
+                    .relative_to(root)
+                    .as_posix(),
+                    max_bytes=16 * 1024 * 1024,
+                ).decode()
             )
-        )
+            if len(text.encode()) > 16 * 1024 * 1024:
+                raise ValueError("扫描报告超过大小限制")
+            data = parse_report(text)
+            check_report(
+                root,
+                data,
+                current=bool(args.confirm_report or args.validate_report_stdin),
+            )
+            if args.publish_report:
+                if not args.validate_report_stdin:
+                    raise ValueError("发布必须与锁内标准输入校验一起使用")
+                lock = (
+                    root
+                    / str(
+                        run_git(
+                            root,
+                            "rev-parse",
+                            "--git-path",
+                            "echo-semantic-project-state.lock",
+                        )
+                    ).strip()
+                )
+                descriptor = os.open(
+                    lock,
+                    os.O_RDONLY
+                    | getattr(os, "O_NOFOLLOW", 0)
+                    | getattr(os, "O_NONBLOCK", 0),
+                )
+                try:
+                    info = os.fstat(descriptor)
+                    if not stat.S_ISREG(info.st_mode) or info.st_size > 512:
+                        raise ValueError("报告发布缺少有效仓库锁")
+                    token = os.read(descriptor, 513).decode()
+                    if not re.fullmatch(str(os.getppid()) + r":[0-9a-f-]{36}", token):
+                        raise ValueError("报告发布必须由持有仓库锁的父进程调用")
+                finally:
+                    os.close(descriptor)
+                publish_report(root, data["id"], text)
+            print(
+                json.dumps(
+                    {
+                        "scope": "repository",
+                        "report_id": data["id"],
+                        "snapshot": data["source_snapshot"],
+                        "structure": "passed",
+                        "current": bool(
+                            args.confirm_report or args.validate_report_stdin
+                        ),
+                        "baselineUpdated": False,
+                        "reportPublished": args.publish_report,
+                        "next": "用户确认后通过预检维护正式语义材料，并执行全项目验证",
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        else:
+            if args.publish_report:
+                raise ValueError("发布只能在锁内报告校验时使用")
+            if args.confirmation:
+                raise ValueError("confirmation 只能用于确认已保存报告")
+            print(
+                json.dumps(
+                    scan(root, args.write, args.path or None),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
         return 0
     except (OSError, RuntimeError, UnicodeError, ValueError) as error:
         print(f"语义资产盘点失败：{error}")

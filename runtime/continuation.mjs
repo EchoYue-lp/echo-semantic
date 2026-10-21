@@ -310,9 +310,11 @@ export function formatContinuation(packet) {
 
 export function checkpointFromPreflight(root, preflight, route) {
   if (!preflight || !isContinuationTaskId(preflight.taskId)) return null;
-  const evidenceRefs = existsSync(resolve(root, ".echo-semantic/baseline.md"))
-    ? [".echo-semantic/baseline.md"]
-    : [];
+  if (preflight.schemaVersion !== 2 || !preflight.reuseCheck) return null;
+  const evidenceRefs = [
+    ".echo-semantic/preflight.json",
+    ...preflight.reuseCheck.evidence.map((item) => item.path),
+  ];
   const objectDirectories = [
     "maps",
     "behaviors",

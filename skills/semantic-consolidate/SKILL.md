@@ -11,7 +11,7 @@ description: >-
 
 ## 入口门禁
 
-- 先运行 `semantic-contract`，确认当前 Baseline、asset 对象和源码引用有效。
+- 扫描报告模式先用 `inventory.py --check-report` 核对 Discovery；没有 Baseline 也可查看候选。正式语义维护再检查相关对象和源码引用。
 - 先读取 `semantic-discover` 的 Discovery 和 `.echo-semantic/assets/`，不得只按文件名判断重复。
 - 每个候选必须绑定同一语义边界、源码 revision、调用消费者、状态权威和测试/运行证据。
 
@@ -47,3 +47,7 @@ description: >-
 4. 删除或替换完成后调用 `semantic-repair` 和 `semantic-verify`。
 
 本 Skill 不创建第二套候选数据库或架构文档。
+
+## 兼容写入入口
+
+`consolidate.py --write` 只保存完整独立扫描报告，`written_findings` 为空，不直接写入正式 Finding。报告内候选保持 `needs_review`，不能作为删除授权。`merge`、`migrate`、`retire` 或 canonical owner 决策不能与报告保存混用。实际用户确认并核对当前源码后，才通过预检维护正式 Finding；局部 `--path` 只查看候选。

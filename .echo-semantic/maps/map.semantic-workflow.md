@@ -4,11 +4,11 @@ id: map.semantic-workflow
 kind: capability_map
 title: 语义工作流与只读复核
 risk: high
-observed_at: source:dc28a20c48961826c028d86b3b6bcef6c0951ac085fec34fc2ee936bf8270380
+observed_at: source:4aee3f15c46918de495f7bfe0a3f4c45ddd24af4d2875cbb000e6becb5766912
 boundary_refs: [boundary.semantic-workflow]
 behavior_refs: [behavior.preflight-before-write]
 rule_refs: [rule.single-semantic-authority]
-evidence_refs: [evidence.semantic-workflow]
+evidence_refs: [evidence.semantic-workflow, evidence.task-scoped-reuse]
 finding_refs: []
 audit_refs: []
 related_map_refs:
@@ -31,7 +31,7 @@ scenarios:
     status: mapped
     source_refs: [runtime/route.mjs#computeRoute]
     rule_refs: [rule.single-semantic-authority]
-  repository-maintenance:
+  explicit-repository-maintenance:
     status: mapped
     source_refs:
       [runtime/route.mjs#computeRoute, hooks/entry.mjs#sessionContext]
@@ -68,7 +68,7 @@ scenarios:
 
 ## 生命周期与失败路径
 
-基线或合同失败时停止增量写入；证据不足保持未知，不伪造闭合。
+相关合同失败时停止对应写入；整体基线失效单独报告，无任务等待，全项目治理仅显式调用；证据不足保持未知，不伪造闭合。
 
 ## 权限与敏感信息
 

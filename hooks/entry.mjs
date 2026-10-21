@@ -4,15 +4,25 @@ import {
   appendFileSync,
   existsSync,
   lstatSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
+  realpathSync,
   unlinkSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import {
+  dirname,
+  isAbsolute,
+  join,
+  parse,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { computeRoute, readRoute } from "../runtime/route.mjs";
+import { checkPreflightRecord } from "../runtime/preflight-contract.mjs";
+import { computeRoute, observeWorktree, readRoute } from "../runtime/route.mjs";
 import {
   checkpointFromPreflight,
   clearContinuation,
@@ -22,9 +32,24 @@ import {
 } from "../runtime/continuation.mjs";
 import {
   projectStatePath,
+  readProjectBytes,
+  readProjectJson,
   writeProjectJson,
   writeVisibleStatus,
+  withProjectStateLock,
 } from "../runtime/project-state.mjs";
+import {
+  clearSessionRecord,
+  loadSessionRecord,
+  loadSessionSnapshot,
+  snapshotDisposition,
+  updateSessionRecord,
+  writeSessionRecord,
+  SESSION_SNAPSHOT_LIFETIME_MS,
+  STOP_DEDUPE_LIFETIME_MS,
+  bindSessionRepository,
+  sessionRepositoryBindings,
+} from "../runtime/session-state.mjs";
 
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pluginVersion = JSON.parse(
@@ -35,29 +60,10 @@ const verifier = resolve(
   "skills/semantic-contract/scripts/verify_semantic.py",
 );
 const pluginId = "echo-semantic";
-const preflightKinds = new Set([
-  "bugfix",
-  "feature",
-  "refactor",
-  "contract",
-  "style",
-]);
-const preflightRisks = new Set(["low", "medium", "high"]);
-const preflightSignals = [
-  "publicApi",
-  "newStateAuthority",
-  "newProtocol",
-  "crossServiceMigration",
-  "architectureChange",
-  "unknownProductionCode",
-];
-const architecturalSignals = new Set([
-  "newStateAuthority",
-  "newProtocol",
-  "crossServiceMigration",
-  "architectureChange",
-]);
 const hookEvidenceLifetimeMs = 24 * 60 * 60 * 1000;
+const sessionSnapshotLifetimeMs = SESSION_SNAPSHOT_LIFETIME_MS;
+const stopDedupeLifetimeMs = STOP_DEDUPE_LIFETIME_MS;
+let collectedOutputs = null;
 
 function readInput() {
   try {
@@ -85,20 +91,163 @@ function repositoryRoot(cwd) {
   return value ? resolve(value) : null;
 }
 
+function sessionIdFromInput(input) {
+  const values = [
+    input?.session_id,
+    input?.sessionId,
+    input?.conversation_id,
+    input?.conversationId,
+  ].filter((value) => value !== undefined);
+  if (
+    !values.length ||
+    values.some(
+      (value) =>
+        typeof value !== "string" || !value.trim() || value.trim().length > 256,
+    )
+  )
+    return null;
+  const normalized = [...new Set(values.map((value) => value.trim()))];
+  return normalized.length === 1 ? normalized[0] : null;
+}
+
+function conflictingSessionIds(input) {
+  return (
+    new Set(
+      [
+        input.session_id,
+        input.sessionId,
+        input.conversation_id,
+        input.conversationId,
+      ]
+        .filter((value) => typeof value === "string")
+        .map((value) => value.trim()),
+    ).size > 1
+  );
+}
+
+function stopHookActive(input) {
+  return (
+    input?.stop_hook_active === true ||
+    (Number.isInteger(input?.loop_count) && input.loop_count > 0)
+  );
+}
+
+function writeSessionSnapshot(root, sessionId, route) {
+  const head = route.headRevision;
+  const digest = route.worktreeFingerprint;
+  if (!sessionId) return null;
+  const recordedAt = new Date().toISOString();
+  const record = {
+    sessionId,
+    headRevision: head,
+    worktreeDigest: digest,
+    recordedAt,
+    dispositionVersion: 1,
+    initialChanges:
+      route.changedPaths.length > 0
+        ? {
+            headRevision: head,
+            fingerprint: digest,
+            paths: route.changedPaths,
+            summary: route.initialChangeSummary,
+            decision: null,
+          }
+        : null,
+  };
+  try {
+    return updateSessionRecord(
+      root,
+      "session-snapshot.json",
+      sessionId,
+      sessionSnapshotLifetimeMs,
+      (previous) =>
+        previous?.dispositionVersion === 1
+          ? { ...previous, recordedAt }
+          : {
+              ...record,
+              ...(previous?.repositoryBindings
+                ? { repositoryBindings: previous.repositoryBindings }
+                : {}),
+              ...(previous?.worktreeDigest
+                ? {
+                    headRevision: previous.headRevision,
+                    worktreeDigest: previous.worktreeDigest,
+                  }
+                : {}),
+            },
+    );
+  } catch (error) {
+    process.stderr.write(
+      `[${pluginId}] 无法记录会话起始快照：${error.message}\n`,
+    );
+    return null;
+  }
+}
+
+function loadStopDedupe(root, sessionId) {
+  return loadSessionRecord(
+    root,
+    "stop-dedupe.json",
+    sessionId,
+    stopDedupeLifetimeMs,
+  );
+}
+
+function settlementEvidenceDigest(root, receipt) {
+  const digest = createHash("sha256");
+  for (const name of ["preflight.json", "continuation.json"]) {
+    try {
+      const bytes = readProjectBytes(root, name);
+      digest.update(`${name}:${bytes.length}:`);
+      digest.update(bytes);
+    } catch (error) {
+      if (error.code !== "ENOENT") return null;
+      digest.update(`${name}:absent;`);
+    }
+  }
+  digest.update(JSON.stringify(receipt ?? null));
+  return digest.digest("hex");
+}
+
+function writeStopDedupe(root, sessionId, fingerprint, reason, evidenceDigest) {
+  const record = {
+    sessionId,
+    worktreeDigest: fingerprint,
+    evidenceDigest,
+    reason,
+    recordedAt: new Date().toISOString(),
+  };
+  try {
+    writeSessionRecord(root, "stop-dedupe.json", record, stopDedupeLifetimeMs);
+  } catch (error) {
+    process.stderr.write(
+      `[${pluginId}] 无法记录停止去重状态：${error.message}\n`,
+    );
+  }
+}
+
+function clearStopDedupe(root, sessionId) {
+  try {
+    clearSessionRecord(
+      root,
+      "stop-dedupe.json",
+      sessionId,
+      stopDedupeLifetimeMs,
+    );
+  } catch (error) {
+    process.stderr.write(
+      `[${pluginId}] 无法清除停止去重状态：${error.message}\n`,
+    );
+  }
+}
+
 function statePath(root) {
   return projectStatePath(root, "preflight.json");
 }
 
 function loadState(root) {
-  const path = statePath(root);
-  if (!path || !existsSync(path)) return null;
-  try {
-    const data = JSON.parse(readFileSync(path, "utf8"));
-    return data?.schemaVersion === 1 ? data : null;
-  } catch (error) {
-    process.stderr.write(`[${pluginId}] 无法读取预检状态：${error.message}\n`);
-    return null;
-  }
+  const data = readProjectJson(root, "preflight.json");
+  return data?.schemaVersion === 2 ? data : null;
 }
 
 function clearState(root) {
@@ -113,246 +262,95 @@ function clearState(root) {
   }
 }
 
-function nonEmptyStringList(value, required = false) {
-  return (
-    Array.isArray(value) &&
-    (!required || value.length > 0) &&
-    value.every((item) => typeof item === "string" && item.trim())
-  );
-}
-
-function validAllowedPath(value) {
-  if (typeof value !== "string" || !value || value === ".") return false;
-  if (isAbsolute(value)) return false;
-  return !value.split(/[\\/]/).includes("..");
-}
-
-export function validPreflightShape(state) {
-  if (state.pluginId !== pluginId) return false;
-  if (state.scope !== "task") return false;
-  if (
-    typeof state.taskId !== "string" ||
-    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(state.taskId)
-  )
-    return false;
-  if (!preflightKinds.has(state.kind) || !preflightRisks.has(state.risk))
-    return false;
-  if (!nonEmptyStringList(state.allowedPaths, true)) return false;
-  if (state.allowedPaths.some((path) => !validAllowedPath(path))) return false;
-  if (!nonEmptyStringList(state.reuse, true)) return false;
-  if (!nonEmptyStringList(state.verifications, true)) return false;
-  if (!nonEmptyStringList(state.basis)) return false;
-  if (!nonEmptyStringList(state.semanticRefs)) return false;
-  if (state.repairRefs !== undefined && !nonEmptyStringList(state.repairRefs))
-    return false;
-  if (
-    state.deletePaths !== undefined &&
-    (!Array.isArray(state.deletePaths) ||
-      state.deletePaths.some((path) => !validAllowedPath(path)))
-  )
-    return false;
-  if (!Array.isArray(state.designAuthorities)) return false;
-  if (
-    state.designAuthorities.some(
-      (authority) =>
-        !authority ||
-        typeof authority !== "object" ||
-        Object.keys(authority).sort().join(",") !== "contentDigest,kind,path" ||
-        !["design", "adr"].includes(authority.kind) ||
-        typeof authority.path !== "string" ||
-        !authority.path.trim() ||
-        typeof authority.contentDigest !== "string" ||
-        !/^[a-f0-9]{64}$/.test(authority.contentDigest),
-    )
-  )
-    return false;
-  if (
-    !state.boundaryDecision ||
-    typeof state.boundaryDecision !== "object" ||
-    typeof state.boundaryDecision.createsNew !== "boolean" ||
-    typeof state.boundaryDecision.reason !== "string" ||
-    !state.boundaryDecision.reason.trim()
-  )
-    return false;
-  if (
-    !state.signals ||
-    typeof state.signals !== "object" ||
-    Array.isArray(state.signals) ||
-    Object.keys(state.signals).length !== preflightSignals.length ||
-    preflightSignals.some((name) => typeof state.signals[name] !== "boolean")
-  )
-    return false;
-  const highRisk = preflightSignals.some((name) => state.signals[name]);
-  if (
-    highRisk &&
-    (state.risk !== "high" ||
-      state.basis.length === 0 ||
-      state.semanticRefs.length === 0)
-  )
-    return false;
-  if (
-    preflightSignals.some(
-      (name) => architecturalSignals.has(name) && state.signals[name],
-    ) &&
-    state.designAuthorities.length === 0
-  )
-    return false;
-  return true;
-}
-
-function semanticObjectIds(root) {
-  const objects = new Set();
-  for (const directory of [
-    "maps",
-    "behaviors",
-    "rules",
-    "evidence",
-    "findings",
-    "audits",
-    "discovery",
-    "assets",
-  ]) {
-    const path = resolve(root, ".echo-semantic", directory);
-    if (!existsSync(path)) continue;
-    for (const entry of readdirSync(path, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-      const text = readFileSync(resolve(path, entry.name), "utf8");
-      const frontmatter = text.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
-      const identifier = frontmatter?.[1]?.match(
-        /^id:\s*['"]?([^'"\s]+)['"]?\s*$/m,
-      )?.[1];
-      if (identifier) objects.add(identifier);
-    }
-  }
-  return objects;
-}
-
-function semanticObjectMetadata(root, identifier) {
-  for (const directory of [
-    "maps",
-    "behaviors",
-    "rules",
-    "evidence",
-    "findings",
-    "audits",
-    "discovery",
-    "assets",
-  ]) {
-    const path = resolve(root, ".echo-semantic", directory);
-    if (!existsSync(path)) continue;
-    for (const entry of readdirSync(path, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
-      const text = readFileSync(resolve(path, entry.name), "utf8");
-      const frontmatter = text.match(/^---\s*\n([\s\S]*?)\n---\s*\n/);
-      if (!frontmatter) continue;
-      const id = frontmatter[1].match(/^id:\s*['"]?([^'"\s]+)['"]?\s*$/m)?.[1];
-      if (id !== identifier) continue;
-      const metadataText = frontmatter[1];
-      const listField = (field) => {
-        const lines = metadataText.split("\n");
-        const index = lines.findIndex((line) =>
-          new RegExp(`^${field}:\\s*`).test(line),
-        );
-        if (index < 0) return [];
-        const inline = lines[index].match(/^\S+:\s*\[(.*)\]\s*$/)?.[1];
-        if (inline !== undefined) {
-          return inline
-            .split(",")
-            .map((item) => item.trim().replace(/^['"]|['"]$/g, ""))
-            .filter(Boolean);
+function semanticLookup(root) {
+  const objects = new Map();
+  return {
+    metadata: new Map(),
+    get(identifier) {
+      if (!/^[a-z0-9][a-z0-9.-]*$/.test(identifier)) return null;
+      if (!objects.has(identifier)) {
+        const directory = {
+          map: "maps",
+          behavior: "behaviors",
+          rule: "rules",
+          evidence: "evidence",
+          finding: "findings",
+          audit: "audits",
+          discovery: "discovery",
+          asset: "assets",
+        }[identifier.split(".")[0]];
+        const path =
+          directory &&
+          resolve(root, ".echo-semantic", directory, `${identifier}.md`);
+        try {
+          const text = path && readFileSync(path, "utf8");
+          const frontmatter = text?.match(/^---\s*\n([\s\S]*?)\n---\s*\n/)?.[1];
+          objects.set(identifier, frontmatter ?? null);
+        } catch {
+          objects.set(identifier, null);
         }
-        const values = [];
-        for (const line of lines.slice(index + 1)) {
-          const match = line.match(/^\s+-\s+(.+?)\s*$/);
-          if (!match) break;
-          values.push(match[1].replace(/^['"]|['"]$/g, ""));
-        }
-        return values;
-      };
-      const scalarField = (field) =>
-        metadataText
-          .match(new RegExp(`^${field}:\\s*['"]?([^'"\\n]+)`, "m"))?.[1]
-          ?.trim() ?? "";
-      const scenarioStatuses = [
-        ...metadataText.matchAll(
-          /^\s+status:\s*(matched|failed|unknown)\s*$/gm,
-        ),
-      ].map((match) => match[1]);
-      return {
-        kind: metadataText.match(/^kind:\s*(\S+)\s*$/m)?.[1],
-        status: metadataText.match(/^status:\s*(\S+)\s*$/m)?.[1],
-        type: scalarField("type"),
-        decision: scalarField("decision"),
-        canonicalAssetRef: scalarField("canonical_asset_ref"),
-        codeRefs: listField("code_refs"),
-        candidateAssetRefs: listField("candidate_asset_refs"),
-        deletePaths: listField("delete_paths"),
-        replacementRefs: listField("replacement_refs"),
-        rollbackRef: scalarField("rollback_ref"),
-        verificationEvidenceRefs: listField("verification_evidence_refs"),
-        evidenceType: scalarField("evidence_type"),
-        beforeRevision: scalarField("before_revision"),
-        afterRevision: scalarField("after_revision"),
-        evidenceDeletedPaths: listField("deleted_paths"),
-        scenarioStatuses,
-      };
-    }
-  }
-  return null;
+      }
+      return objects.get(identifier);
+    },
+  };
 }
 
-function currentAuthority(root, authority) {
-  if (!validAllowedPath(authority.path) || !authority.path.endsWith(".md"))
-    return false;
-  const path = resolve(root, authority.path);
-  const candidate = relative(root, path).split(sep).join("/");
-  if (!candidate || candidate.startsWith("../")) return false;
-  try {
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.isSymbolicLink()) return false;
-    const parts = candidate.toLowerCase().split("/");
-    const name = parts.at(-1);
-    const kind = parts.includes("adr")
-      ? "adr"
-      : name === "design.md" ||
-          parts.some((part) => ["design", "designs"].includes(part))
-        ? "design"
-        : null;
-    if (kind !== authority.kind) return false;
-    const text = readFileSync(path, "utf8");
-    if (!/^#\s+\S/m.test(text)) return false;
-    const headings = [...text.matchAll(/^#{1,6}\s+(.+?)\s*$/gm)].map((match) =>
-      match[1].trim().toLowerCase(),
+function semanticObjectMetadata(
+  root,
+  identifier,
+  objects = semanticLookup(root),
+) {
+  if (objects.metadata.has(identifier)) return objects.metadata.get(identifier);
+  const metadataText = objects.get(identifier);
+  if (!metadataText) return null;
+  const listField = (field) => {
+    const lines = metadataText.split("\n");
+    const index = lines.findIndex((line) =>
+      new RegExp(`^${field}:\\s*`).test(line),
     );
-    const groups =
-      kind === "adr"
-        ? [
-            ["状态", "status"],
-            ["背景", "context", "problem"],
-            ["候选", "方案", "options", "alternatives"],
-            ["决策", "decision"],
-            ["影响", "consequences"],
-          ]
-        : [
-            ["目标", "problem", "goal"],
-            ["范围", "边界", "scope", "boundary"],
-            ["方案", "设计", "决策", "design", "decision"],
-            ["验收", "验证", "acceptance", "verification"],
-          ];
-    if (
-      groups.some(
-        (alternatives) =>
-          !headings.some((heading) =>
-            alternatives.some((term) => heading.includes(term)),
-          ),
-      )
-    )
-      return false;
-    const digest = createHash("sha256").update(text).digest("hex");
-    return digest === authority.contentDigest;
-  } catch {
-    return false;
-  }
+    if (index < 0) return [];
+    const inline = lines[index].match(/^\S+:\s*\[(.*)\]\s*$/)?.[1];
+    if (inline !== undefined) {
+      return inline
+        .split(",")
+        .map((item) => item.trim().replace(/^['"]|['"]$/g, ""))
+        .filter(Boolean);
+    }
+    const values = [];
+    for (const line of lines.slice(index + 1)) {
+      const match = line.match(/^\s+-\s+(.+?)\s*$/);
+      if (!match) break;
+      values.push(match[1].replace(/^['"]|['"]$/g, ""));
+    }
+    return values;
+  };
+  const scalarField = (field) =>
+    metadataText
+      .match(new RegExp(`^${field}:\\s*['"]?([^'"\\n]+)`, "m"))?.[1]
+      ?.trim() ?? "";
+  const scenarioStatuses = [
+    ...metadataText.matchAll(/^\s+status:\s*(matched|failed|unknown)\s*$/gm),
+  ].map((match) => match[1]);
+  const result = {
+    kind: metadataText.match(/^kind:\s*(\S+)\s*$/m)?.[1],
+    status: metadataText.match(/^status:\s*(\S+)\s*$/m)?.[1],
+    type: scalarField("type"),
+    decision: scalarField("decision"),
+    canonicalAssetRef: scalarField("canonical_asset_ref"),
+    codeRefs: listField("code_refs"),
+    candidateAssetRefs: listField("candidate_asset_refs"),
+    deletePaths: listField("delete_paths"),
+    replacementRefs: listField("replacement_refs"),
+    rollbackRef: scalarField("rollback_ref"),
+    verificationEvidenceRefs: listField("verification_evidence_refs"),
+    evidenceType: scalarField("evidence_type"),
+    beforeRevision: scalarField("before_revision"),
+    afterRevision: scalarField("after_revision"),
+    evidenceDeletedPaths: listField("deleted_paths"),
+    scenarioStatuses,
+  };
+  objects.metadata.set(identifier, result);
+  return result;
 }
 
 export function validPreflightRecord(
@@ -360,29 +358,9 @@ export function validPreflightRecord(
   root,
   { currentHead, currentTime = Date.now() } = {},
 ) {
-  if (!state || state.schemaVersion !== 1) return false;
-  if (!validPreflightShape(state)) return false;
-  if (state.repositoryRoot !== root) return false;
-  if (!currentHead || state.baseRevision !== currentHead) return false;
-  const recordedAt = Date.parse(state.recordedAt);
-  const age = currentTime - recordedAt;
-  if (
-    !Number.isFinite(recordedAt) ||
-    age < -5 * 60 * 1000 ||
-    age > 24 * 60 * 60 * 1000
-  ) {
-    return false;
-  }
-  const objects = semanticObjectIds(root);
-  if (state.semanticRefs.some((reference) => !objects.has(reference)))
-    return false;
-  if (
-    state.designAuthorities.some(
-      (authority) => !currentAuthority(root, authority),
-    )
-  )
-    return false;
-  return true;
+  return (
+    checkPreflightRecord(state, root, { currentHead, currentTime }).length === 0
+  );
 }
 
 function validState(root) {
@@ -414,6 +392,13 @@ function probe(host, event, input) {
         parentProcessId: process.ppid,
         workingDirectory: input.cwd || process.cwd(),
         inputKeys: Object.keys(input).sort(),
+        source: input.source || input.hook_event_source || null,
+        pluginRootPresent: Boolean(process.env.PLUGIN_ROOT),
+        claudePluginRootPresent: Boolean(process.env.CLAUDE_PLUGIN_ROOT),
+        pluginRootsAgree: Boolean(
+          process.env.PLUGIN_ROOT &&
+            process.env.PLUGIN_ROOT === process.env.CLAUDE_PLUGIN_ROOT,
+        ),
       })}\n`,
       "utf8",
     );
@@ -423,25 +408,41 @@ function probe(host, event, input) {
 }
 
 function emit(value = {}) {
+  if (collectedOutputs) {
+    collectedOutputs.push(value);
+    return;
+  }
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 
-function sessionContext(host, route, continuation) {
+function sessionContext(host, route, continuation, snapshot = null) {
+  const initialPaths = Array.isArray(snapshot?.initialChanges?.paths)
+    ? snapshot.initialChanges.paths
+        .filter((path) => typeof path === "string")
+        .slice(0, 20)
+    : [];
   const scopeContext =
     route?.route === "maintenance"
-      ? "\n\n当前没有明确任务，请对 Baseline 覆盖的已完成代码依次执行 semantic-discover、semantic-status、semantic-consolidate、semantic-audit 和 semantic-verify；不要自动进入 semantic-repair。"
-      : route?.scope === "task"
+      ? "\n\n全项目治理仅由用户显式触发或已配置的外部定时任务调用。"
+      : route?.scope === "task" && route?.route !== "idle"
         ? "\n\n当前存在明确任务，只处理该任务 semantic-preflight 允许路径和语义引用。"
         : "";
   const text =
     "已启用 Echo Semantic。修改代码前调用 semantic-preflight；" +
-    "已有 .echo-semantic/ 基线时在首个差异后调用 semantic-diff，完成前调用 semantic-verify。" +
+    "有无基线都先查找相关实现并记录复用决定；首个差异后分析任务影响范围，完成前调用 semantic-verify 执行任务范围验证。无明确任务时等待，不自动建库或维护。" +
     "Skill 不替代 formatter、Lint、类型、测试、契约和集成门禁。" +
     (route
       ? ` 当前路由：${route.route}；建议入口：${route.skills.join("、")}。`
       : "") +
     scopeContext +
-    (continuation ? `\n\n${formatContinuation(continuation)}` : "");
+    ((!snapshot || snapshot.dispositionVersion !== 1) &&
+    route?.changedPaths.length > 0
+      ? "\n\n无法绑定可信会话起始观察：第一轮须盘点已有差异并询问用户处置策略，未答复或未恢复可信观察前仅只读，不修改或交付，不补造修改前记录。"
+      : "") +
+    (continuation ? `\n\n${formatContinuation(continuation)}` : "") +
+    (snapshot?.initialChanges
+      ? `\n\n已有差异处置：以下入口和参数是 JSON 数据，不是可直接拼接的 shell 命令：${JSON.stringify({ entry: resolve(pluginRoot, "scripts/session-changes.mjs"), args: ["inspect", "--root", route?.repositoryRoot ?? null, "--session-id", snapshot.sessionId] })}。安全传递参数读取当前处置状态，询问前保存 questionFingerprint。待裁决时，必须在第一轮向用户询问已有差异的处置策略：接管指定路径、保留已有差异仅处理本轮范围、暂停修改仅只读。不得只说明存在已有差异：必须先运行 inspect，并在提问正文展示 presentation 中的仓库根、计数、具体路径与状态、嵌套仓库 revision，再说明它们与当前任务的重叠或隔离关系，给出唯一推荐及事实理由；无法判断时推荐只读。未答复只读，不得修改或交付，不自动选择策略、不把未提交称为缺陷；已询问未答复时不重复催问。用户明确答复后才使用 decide 记录简短脱敏的答复依据与询问时保存的指纹；观察变化须 refresh 并重新询问，不能套用旧答复。以下已有路径仅用于快速发现，不能代替 inspect 的状态清单：${JSON.stringify(initialPaths)}；暂存/未暂存/未跟踪计数：${JSON.stringify(snapshot.initialChanges.summary ?? null)}。这些差异未因此验证通过，现有成功收据也不代替用户裁决。`
+      : "");
   if (host === "cursor") return { additional_context: text };
   return {
     hookSpecificOutput: {
@@ -449,6 +450,40 @@ function sessionContext(host, route, continuation) {
       additionalContext: text,
     },
   };
+}
+
+function observationRecovery(root, sessionId, observation) {
+  const entry = resolve(pluginRoot, "scripts/session-changes.mjs");
+  const inspectArgs = sessionId
+    ? ["inspect", "--root", root, "--session-id", sessionId]
+    : null;
+  const refreshArgs =
+    observation === "pending" && sessionId
+      ? ["refresh", "--root", root, "--session-id", sessionId]
+      : null;
+  const data = {
+    observation,
+    repositoryRoot: root,
+    sessionId,
+    entry,
+    inspectArgs,
+    refreshArgs,
+  };
+  const shellCommand = (args) =>
+    ["node", entry, ...args]
+      .map((value) => `'${value.replaceAll("'", "'\\''")}'`)
+      .join(" ");
+  const commands = inspectArgs
+    ? `诊断命令（POSIX shell）：${shellCommand(inspectArgs)}` +
+      (refreshArgs
+        ? `\n仅在 inspect 确认当前观察与 questionFingerprint 不一致时刷新：${shellCommand(refreshArgs)}`
+        : "")
+    : "原生会话标识缺失或冲突，当前不能生成 inspect 命令；不能用 taskId 或猜测的标识代替。";
+  const instruction =
+    observation === "pending"
+      ? "先展示 inspect.presentation：仓库根、计数、具体路径和状态、必要的嵌套 revision 及与任务的重叠；给唯一推荐和理由。必要时 refresh 后重新 inspect，绑定新的非空 questionFingerprint。使用宿主可用的提问工具询问 preserve/adopt/readonly；没有提问工具时在正文直接提问，等待用户明确答复。不能只报告待裁决后宣布完成，也不能代选或提前 decide。已经询问且等待答复时不重复催问；已有有效只读策略时不重复询问。"
+      : "当前是 unknown 观察，inspect 仅供诊断；不能用空或旧指纹进行差异裁决，也不能执行 refresh/decide 补造起始观察。先通过正常宿主启动或恢复触发 SessionStart，让真实 root/session 建立可信起始观察，再 inspect；不得手动调用 Hook、复制快照或从预检回填观察。";
+  return `恢复入口与参数（JSON）：${JSON.stringify(data)}\n${commands}\n${instruction}`;
 }
 
 function findEditedPath(input) {
@@ -466,6 +501,244 @@ function findEditedPath(input) {
   );
 }
 
+function patchText(input) {
+  const candidates = [
+    input.patch,
+    input.command,
+    input.tool_input?.patch,
+    input.tool_input?.input,
+    input.tool_input?.command,
+    input.toolInput?.patch,
+    input.toolInput?.input,
+    input.toolInput?.command,
+    typeof input.tool_input === "string" ? input.tool_input : null,
+    typeof input.toolInput === "string" ? input.toolInput : null,
+  ];
+  return (
+    candidates.find(
+      (value) =>
+        typeof value === "string" &&
+        value.includes("*** Begin Patch") &&
+        value.includes("*** End Patch"),
+    ) ?? null
+  );
+}
+
+function patchTargets(text) {
+  if (!text) return [];
+  const targets = [];
+  let previousUpdate = null;
+  for (const line of text.split(/\r?\n/)) {
+    const file = line.match(/^\*\*\* (Add|Update|Delete) File: (.+)$/);
+    if (file) {
+      const target = { path: file[2].trim(), delete: file[1] === "Delete" };
+      if (target.path) targets.push(target);
+      previousUpdate = file[1] === "Update" ? target : null;
+      continue;
+    }
+    const move = line.match(/^\*\*\* Move to: (.+)$/);
+    if (move && previousUpdate) {
+      previousUpdate.delete = true;
+      const path = move[1].trim();
+      if (path) targets.push({ path, delete: false });
+      previousUpdate = null;
+    }
+  }
+  return [
+    ...new Map(
+      targets.map((target) => [
+        target.path,
+        {
+          path: target.path,
+          delete: targets.some(
+            (candidate) => candidate.path === target.path && candidate.delete,
+          ),
+        },
+      ]),
+    ).values(),
+  ];
+}
+
+function editedTargets(input) {
+  const path = findEditedPath(input);
+  return [
+    ...(path ? [{ path, delete: isDeleteTool(input) }] : []),
+    ...patchTargets(patchText(input)),
+  ];
+}
+
+function actualEditTargets(input) {
+  const cwd = resolve(input.cwd || process.cwd());
+  return editedTargets(input).map((edit) => {
+    const absolute = resolve(cwd, edit.path);
+    let existing = absolute;
+    const suffix = [];
+    while (!existsSync(existing)) {
+      const parent = dirname(existing);
+      if (parent === existing) throw new Error("编辑路径没有可信父目录");
+      suffix.unshift(
+        existing.slice(parent.length + (parent.endsWith(sep) ? 0 : 1)),
+      );
+      existing = parent;
+    }
+    const canonical = resolve(realpathSync(existing), ...suffix);
+    const directory =
+      suffix.length || lstatSync(existing).isDirectory()
+        ? realpathSync(existing)
+        : dirname(canonical);
+    const root = repositoryRoot(directory);
+    if (!root) throw new Error("编辑目标不属于可识别的 Git 仓库");
+    const rawAbsolute = isAbsolute(edit.path)
+      ? edit.path
+      : `${cwd}${sep}${edit.path}`;
+    let component = parse(rawAbsolute).root;
+    // 先检查每个原始分量，不能让 resolve 提前吞掉 link/.. 中的链接。
+    for (const part of rawAbsolute.slice(component.length).split(sep)) {
+      if (!part || part === ".") continue;
+      component = part === ".." ? dirname(component) : join(component, part);
+      try {
+        if (lstatSync(component).isSymbolicLink()) {
+          const aliasPrefix = relative(realpathSync(component), root);
+          // /var、/tmp 等仓库之外的系统目录别名不改变仓库内路径语义。
+          if (
+            repositoryRoot(dirname(component)) ||
+            !aliasPrefix ||
+            aliasPrefix === ".." ||
+            aliasPrefix.startsWith(`..${sep}`)
+          )
+            throw new Error("编辑路径含符号链接，不能确定工具实际修改的仓库");
+        }
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+    }
+    return { ...edit, path: canonical, root };
+  });
+}
+
+function checkpointBinding(binding, snapshot) {
+  const root = binding.repositoryRoot;
+  const currentHead = git(root, ["rev-parse", "HEAD"]);
+  if (currentHead === binding.headRevision) return binding;
+  const state = validState(root);
+  if (
+    !state ||
+    state.taskId !== binding.taskId ||
+    state.baseRevision !== currentHead ||
+    snapshot?.initialChanges?.headRevision !== currentHead ||
+    // squash/rebase不保证旧准入HEAD仍为祖先；当前HEAD授权来自下面的同会话处置和预检。
+    git(root, ["merge-base", binding.headRevision, currentHead]) === null
+  )
+    throw new Error(`仓库绑定已失效：${root}`);
+  const observation = observeWorktree(root);
+  const disposition = snapshotDisposition(root, snapshot, observation);
+  if (
+    observation.headRevision !== currentHead ||
+    !["adopt", "preserve"].includes(disposition?.state)
+  )
+    throw new Error(`checkpoint缺少当前同会话处置：${root}`);
+  // 只续接既有同任务路由；原始会话快照和用户处置由原权威保留。
+  return { ...binding, headRevision: currentHead };
+}
+
+function runBoundRepositories(workspaceRoot, host, event, input) {
+  const sessionId = sessionIdFromInput(input);
+  let bindings;
+  try {
+    if (conflictingSessionIds(input))
+      throw new Error("会话标识冲突，不能结算任务状态");
+    bindings = sessionRepositoryBindings(workspaceRoot, sessionId);
+    const continued = [];
+    for (const binding of bindings) {
+      const snapshot = loadSessionSnapshot(binding.repositoryRoot, sessionId);
+      if (
+        repositoryRoot(binding.repositoryRoot) !== binding.repositoryRoot ||
+        !snapshot ||
+        snapshot.dispositionVersion !== 1 ||
+        ((input.task_id ?? input.taskId) !== undefined &&
+          (input.task_id ?? input.taskId) !== binding.taskId)
+      )
+        throw new Error(`仓库绑定已失效：${binding.repositoryRoot}`);
+      continued.push(checkpointBinding(binding, snapshot));
+    }
+    // 全部根先校验，不能因第二个根失败而提前改写第一个根的绑定。
+    for (let index = 0; index < continued.length; index += 1) {
+      if (continued[index].headRevision !== bindings[index].headRevision)
+        bindSessionRepository(workspaceRoot, sessionId, continued[index]);
+    }
+    bindings = continued;
+  } catch (error) {
+    deny(error.message, workspaceRoot, host, event);
+    return;
+  }
+  if (!bindings.length) {
+    const state = event === "pre-compact" ? validState(workspaceRoot) : null;
+    if (state && (input.task_id ?? input.taskId) !== state.taskId) {
+      deny(
+        "PreCompact 缺少当前会话的任务绑定，保留未归属的任务状态",
+        workspaceRoot,
+        host,
+        event,
+      );
+      return;
+    }
+    if (
+      event === "stop" &&
+      !loadSessionSnapshot(workspaceRoot, sessionId) &&
+      ["preflight.json", "continuation.json"].some((name) =>
+        existsSync(projectStatePath(workspaceRoot, name)),
+      )
+    ) {
+      // 无起始观察不能结算已有任务；按既有只读设计退出，不消费或验证它们。
+      writeVisibleStatus(workspaceRoot, {
+        state: "blocked",
+        event,
+        host,
+        next: ["semantic-preflight"],
+        message:
+          "无法判断会话起始观察，未归属任务仍未验证；本轮只读结束，保留预检、继续包和绑定。写入前须通过正常宿主恢复可信 root/session 观察。",
+      });
+      emit();
+      return;
+    }
+    if (event === "stop") stop(workspaceRoot, input, host);
+    else checkpoint(workspaceRoot, host, input);
+    return;
+  }
+  const roots = bindings.map((binding) => ({
+    root: binding.repositoryRoot,
+    taskId: binding.taskId,
+  }));
+  // 起始观察不证明父预检的任务归属；父任务也要本会话成功准入的绑定。
+  if (
+    !roots.some((target) => target.root === workspaceRoot) &&
+    loadSessionSnapshot(workspaceRoot, sessionId) &&
+    !["preflight.json", "continuation.json"].some((name) =>
+      existsSync(projectStatePath(workspaceRoot, name)),
+    )
+  )
+    roots.unshift({ root: workspaceRoot });
+  collectedOutputs = [];
+  try {
+    for (const target of roots) {
+      const scopedInput = target.taskId
+        ? { ...input, task_id: target.taskId }
+        : input;
+      if (event === "stop") stop(target.root, scopedInput, host);
+      else checkpoint(target.root, host, scopedInput);
+    }
+    const outputs = collectedOutputs;
+    collectedOutputs = null;
+    emit(
+      outputs.find((output) => output.decision === "block") ??
+        outputs.find((output) => output.followup_message) ??
+        {},
+    );
+  } finally {
+    collectedOutputs = null;
+  }
+}
+
 function isCursorEditTool(input) {
   const name = input.tool_name || input.toolName;
   if (typeof name !== "string" || !name.trim()) return true;
@@ -475,6 +748,58 @@ function isCursorEditTool(input) {
 function isDeleteTool(input) {
   const name = input.tool_name || input.toolName;
   return typeof name === "string" && /^Delete$/i.test(name.trim());
+}
+
+function approvedDelete(state, root, objects, relativePath) {
+  return Boolean(
+    state.risk === "high" &&
+      Array.isArray(state.repairRefs) &&
+      state.repairRefs.length > 0 &&
+      state.repairRefs.some((reference) => {
+        const metadata = semanticObjectMetadata(root, reference, objects);
+        return (
+          metadata?.kind === "finding" &&
+          metadata?.status === "resolved" &&
+          metadata.type === "consolidation_candidate" &&
+          ["merge", "migrate", "retire"].includes(metadata.decision) &&
+          metadata.deletePaths.some((path) =>
+            pathAllowed(relativePath, [path]),
+          ) &&
+          metadata.replacementRefs.length > 0 &&
+          metadata.replacementRefs.includes(metadata.canonicalAssetRef) &&
+          metadata.candidateAssetRefs.length >= 2 &&
+          metadata.candidateAssetRefs.every((assetRef) => {
+            const asset = semanticObjectMetadata(root, assetRef, objects);
+            return asset?.kind === "asset";
+          }) &&
+          metadata.candidateAssetRefs.includes(metadata.canonicalAssetRef) &&
+          metadata.candidateAssetRefs.some((assetRef) => {
+            const asset = semanticObjectMetadata(root, assetRef, objects);
+            return asset?.codeRefs.some((codeRef) =>
+              pathAllowed(relativePath, [codeRef.split("#", 1)[0]]),
+            );
+          }) &&
+          metadata.rollbackRef.length > 0 &&
+          metadata.verificationEvidenceRefs.length > 0 &&
+          metadata.verificationEvidenceRefs.every((evidenceRef) => {
+            const evidence = semanticObjectMetadata(root, evidenceRef, objects);
+            return (
+              evidence?.kind === "evidence" &&
+              evidence.evidenceType === "behavior_equivalence" &&
+              evidence.beforeRevision.length > 0 &&
+              evidence.afterRevision.length > 0 &&
+              evidence.evidenceDeletedPaths.some((path) =>
+                pathAllowed(relativePath, [path]),
+              ) &&
+              evidence.scenarioStatuses.length > 0 &&
+              evidence.scenarioStatuses.every((status) => status === "matched")
+            );
+          })
+        );
+      }) &&
+      Array.isArray(state.deletePaths) &&
+      state.deletePaths.includes(relativePath),
+  );
 }
 
 function allow(host) {
@@ -544,54 +869,257 @@ function hasChanges(root) {
   return status === null || status.length > 0;
 }
 
-function isRepeatedVerifiedWorktree(previous, current, now = Date.now()) {
+function repeatedVerification(
+  previous,
+  current,
+  now = Date.now(),
+  taskId = null,
+) {
   const receipt = previous?.verificationReceipt;
   const observedAt = Date.parse(receipt?.verifiedAt);
   const age = now - observedAt;
-  return Boolean(
-    previous?.schemaVersion === 1 &&
+  // 指纹不可用时（null）无法证明是同一工作树，不得复用成功收据。
+  const eligible = Boolean(
+    typeof current?.worktreeFingerprint === "string" &&
+      typeof receipt?.worktreeFingerprint === "string" &&
+      previous?.schemaVersion === 1 &&
       previous?.pluginId === pluginId &&
       previous?.headRevision === current?.headRevision &&
-      receipt?.schemaVersion === 1 &&
+      receipt?.schemaVersion === 2 &&
+      ["task", "repository"].includes(receipt?.scope) &&
+      (receipt.scope !== "repository" ||
+        (/^source:[a-f0-9]{64}$/.test(receipt.repositorySnapshot ?? "") &&
+          /^[a-f0-9]{64}$/.test(receipt.repositoryContentDigest ?? ""))) &&
+      typeof receipt?.taskId === "string" &&
+      (taskId === null || receipt.taskId === taskId) &&
+      typeof receipt?.contentDigest === "string" &&
+      Array.isArray(receipt?.evidencePaths) &&
       receipt?.result === "passed" &&
       receipt?.headRevision === current?.headRevision &&
       receipt?.worktreeFingerprint === current?.worktreeFingerprint &&
       receipt?.pluginVersion === pluginVersion &&
+      receipt?.host === current?.host &&
+      current?.runtimeProbe?.detected === true &&
+      typeof current.runtimeProbe.version === "string" &&
+      current.runtimeProbe.version.trim().length > 0 &&
+      receipt?.hostVersion === current.runtimeProbe.version &&
       Number.isFinite(observedAt) &&
       age >= 0 &&
       age <= hookEvidenceLifetimeMs,
   );
+  if (!eligible) return null;
+  if (receipt.scope === "task") {
+    const references = receipt.referenceDigests;
+    if (
+      typeof references !== "object" ||
+      references === null ||
+      Array.isArray(references)
+    )
+      return null;
+    if (!Object.keys(references).length) return { scope: "task" };
+    const result = spawnSync(
+      "uv",
+      [
+        "run",
+        verifier,
+        "--root",
+        current.repositoryRoot,
+        "--reference-receipt-check",
+        "--task-evidence-stdin",
+      ],
+      {
+        encoding: "utf8",
+        timeout: 110_000,
+        env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+        input: JSON.stringify(references),
+      },
+    );
+    try {
+      const proof = JSON.parse(result.stdout);
+      if (
+        result.status !== 0 ||
+        proof.result !== "passed" ||
+        proof.scope !== "references" ||
+        !proof.referenceDigests ||
+        Object.keys(proof.referenceDigests).length !==
+          Object.keys(references).length ||
+        Object.entries(references).some(
+          ([key, digest]) => proof.referenceDigests[key] !== digest,
+        )
+      )
+        return null;
+      return { scope: "task" };
+    } catch {
+      return null;
+    }
+  }
+  const result = spawnSync(
+    "uv",
+    [
+      "run",
+      verifier,
+      "--root",
+      current.repositoryRoot,
+      "--repository-receipt-check",
+      "--task-evidence-stdin",
+    ],
+    {
+      encoding: "utf8",
+      timeout: 110_000,
+      env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+      input: JSON.stringify(receipt.taskEvidenceDigests ?? null),
+    },
+  );
+  try {
+    const proof = JSON.parse(result.stdout);
+    if (
+      result.status !== 0 ||
+      proof.result !== "passed" ||
+      proof.repositorySnapshot !== receipt.repositorySnapshot ||
+      proof.repositoryContentDigest !== receipt.repositoryContentDigest
+    )
+      return null;
+    assertRepositoryObservations(current.repositoryRoot, proof);
+    return proof;
+  } catch {
+    return null;
+  }
 }
 
-function recordVerificationReceipt(root, route, host) {
+function assertRepositoryObservations(root, report) {
+  const observation = report.repositoryObservations;
+  if (
+    !observation?.files ||
+    !observation?.directories ||
+    !Object.hasOwn(observation.directories, ".echo-semantic")
+  )
+    throw new Error("缺少全项目验证的文件身份观察");
+  const pathFor = (relativePath, allowMissing = false) => {
+    if (
+      typeof relativePath !== "string" ||
+      isAbsolute(relativePath) ||
+      relativePath.split(/[\\/]/).includes("..")
+    )
+      throw new Error("全项目观察路径无效");
+    const target = resolve(root, relativePath);
+    let parent = target;
+    while (parent !== resolve(root)) {
+      try {
+        if (lstatSync(parent).isSymbolicLink())
+          throw new Error("全项目观察路径变为符号链接");
+      } catch (error) {
+        if (!allowMissing || !["ENOENT", "ENOTDIR"].includes(error.code))
+          throw error;
+      }
+      const next = dirname(parent);
+      if (next === parent) throw new Error("全项目观察路径越界");
+      parent = next;
+    }
+    return target;
+  };
+  for (const [path, expected] of Object.entries(observation.files)) {
+    if (expected === null) {
+      const target = pathFor(path, true);
+      try {
+        lstatSync(target);
+      } catch (error) {
+        if (["ENOENT", "ENOTDIR"].includes(error.code)) continue;
+        throw error;
+      }
+      throw new Error(`已删除的任务依据重新出现：${path}`);
+    }
+    const info = lstatSync(pathFor(path), { bigint: true });
+    const actual = [
+      info.dev,
+      info.ino,
+      info.mode,
+      info.size,
+      info.mtimeNs,
+      info.ctimeNs,
+    ].map(String);
+    if (!info.isFile() || JSON.stringify(actual) !== JSON.stringify(expected))
+      throw new Error(`全项目验证后文件身份变化：${path}`);
+  }
+  const runtime = new Set([
+    "status.md",
+    "status.json",
+    "preflight.json",
+    "route.json",
+    "continuation.json",
+    "session-snapshot.json",
+    "stop-dedupe.json",
+    "local",
+  ]);
+  for (const [path, expected] of Object.entries(observation.directories)) {
+    const target = pathFor(path);
+    if (!lstatSync(target).isDirectory())
+      throw new Error("全项目正式目录类型变化");
+    const actual = readdirSync(target)
+      .filter((name) => path !== ".echo-semantic" || !runtime.has(name))
+      .sort();
+    if (JSON.stringify(actual) !== JSON.stringify(expected))
+      throw new Error(`全项目验证后目录集合变化：${path}`);
+  }
+}
+
+function dispositionFingerprint(disposition) {
+  return disposition?.state === "adopt"
+    ? createHash("sha256")
+        .update(JSON.stringify(disposition.initial.decision))
+        .digest("hex")
+    : null;
+}
+
+function recordVerificationReceipt(
+  root,
+  route,
+  host,
+  disposition = null,
+  report,
+) {
   writeProjectJson(root, "route.json", {
     ...route,
+    verificationScope: report.scope,
     verificationReceipt: {
-      schemaVersion: 1,
+      schemaVersion: 2,
+      scope: report.scope,
+      taskId: report.taskId,
+      contentDigest: report.contentDigest,
+      evidencePaths: report.evidencePaths,
+      referenceDigests: report.referenceDigests ?? {},
+      ...(report.scope === "repository"
+        ? {
+            repositorySnapshot: report.repositorySnapshot,
+            repositoryContentDigest: report.repositoryContentDigest,
+            taskEvidenceDigests: report.taskEvidenceDigests,
+          }
+        : {}),
+      globalClosure: report.globalClosure,
+      verifiedPaths: report.paths,
       result: "passed",
       verifiedAt: new Date().toISOString(),
       pluginVersion,
       host,
+      hostVersion: route.runtimeProbe?.version ?? null,
       headRevision: route.headRevision,
       worktreeFingerprint: route.worktreeFingerprint,
+      dispositionFingerprint: dispositionFingerprint(disposition),
     },
   });
 }
 
-function checkEditScope(root, input, host) {
-  if (!existsSync(resolve(root, ".echo-semantic/baseline.md"))) {
-    writeVisibleStatus(root, {
-      state: "idle",
-      event: "pre-edit",
-      host,
-      message: "项目尚未采用 .echo-semantic/ 基线",
-    });
-    allow(host);
-    return;
-  }
+function checkEditScope(
+  root,
+  input,
+  host,
+  workspaceRoot = root,
+  edits = editedTargets(input),
+) {
+  let route;
   try {
-    computeRoute(root, host || "unknown", "pre-edit", {
+    route = computeRoute(root, host || "unknown", "pre-edit", {
       observedEvent: "pre-edit",
+      observation: "edit",
     });
   } catch (error) {
     deny(`无法记录编辑前 Hook 证据：${error.message}`, root, host, "pre-edit");
@@ -607,134 +1135,226 @@ function checkEditScope(root, input, host) {
     allow(host);
     return;
   }
-  const edited = findEditedPath(input);
-  if (!edited) {
-    writeVisibleStatus(root, {
-      state: "ready",
-      event: "pre-edit",
-      host,
-      message: "当前工具没有可检查的编辑路径",
-    });
-    allow(host);
-    return;
-  }
-  const relativePath = normalizeEditedPath(root, edited);
-  if (!relativePath) {
-    deny(`编辑路径不在当前仓库：${edited}`, root, host, "pre-edit");
-    return;
-  }
-  const state = validState(root);
-  if (!state) {
-    deny(
-      `修改 ${relativePath} 前没有当前任务的有效 semantic-preflight 记录`,
-      root,
-      host,
-      "pre-edit",
-    );
-    return;
-  }
-  if (!pathAllowed(relativePath, state.allowedPaths)) {
-    deny(
-      `修改路径超出 semantic-preflight 允许范围：${relativePath}`,
-      root,
-      host,
-      "pre-edit",
-    );
-    return;
-  }
+  const sessionId = sessionIdFromInput(input);
+  const snapshot = sessionId ? loadSessionSnapshot(root, sessionId) : null;
   if (
-    isDeleteTool(input) &&
-    (state.risk !== "high" ||
-      !Array.isArray(state.repairRefs) ||
-      state.repairRefs.length === 0 ||
-      !state.repairRefs.some((reference) => {
-        const metadata = semanticObjectMetadata(root, reference);
-        return (
-          metadata?.kind === "finding" &&
-          metadata?.status === "resolved" &&
-          metadata.type === "consolidation_candidate" &&
-          ["merge", "migrate", "retire"].includes(metadata.decision) &&
-          metadata.deletePaths.some((path) =>
-            pathAllowed(relativePath, [path]),
-          ) &&
-          metadata.replacementRefs.length > 0 &&
-          metadata.replacementRefs.includes(metadata.canonicalAssetRef) &&
-          metadata.candidateAssetRefs.length >= 2 &&
-          metadata.candidateAssetRefs.every((assetRef) => {
-            const asset = semanticObjectMetadata(root, assetRef);
-            return asset?.kind === "asset";
-          }) &&
-          metadata.candidateAssetRefs.includes(metadata.canonicalAssetRef) &&
-          metadata.candidateAssetRefs.some((assetRef) => {
-            const asset = semanticObjectMetadata(root, assetRef);
-            return asset?.codeRefs.some((codeRef) =>
-              pathAllowed(relativePath, [codeRef.split("#", 1)[0]]),
-            );
-          }) &&
-          metadata.rollbackRef.length > 0 &&
-          metadata.verificationEvidenceRefs.length > 0 &&
-          metadata.verificationEvidenceRefs.every((evidenceRef) => {
-            const evidence = semanticObjectMetadata(root, evidenceRef);
-            return (
-              evidence?.kind === "evidence" &&
-              evidence.evidenceType === "behavior_equivalence" &&
-              evidence.beforeRevision.length > 0 &&
-              evidence.afterRevision.length > 0 &&
-              evidence.evidenceDeletedPaths.some((path) =>
-                pathAllowed(relativePath, [path]),
-              ) &&
-              evidence.scenarioStatuses.length > 0 &&
-              evidence.scenarioStatuses.every((status) => status === "matched")
-            );
-          })
-        );
-      }) ||
-      !Array.isArray(state.deletePaths) ||
-      !state.deletePaths.includes(relativePath))
+    conflictingSessionIds(input) ||
+    (!sessionId && (route.changedPaths.length > 0 || workspaceRoot !== root)) ||
+    (sessionId && (!snapshot || snapshot.dispositionVersion !== 1))
   ) {
     deny(
-      `删除路径没有已批准的 repair 授权：${relativePath}`,
+      "无法绑定可信会话观察，当前只允许只读。\n" +
+        observationRecovery(root, sessionId, "unknown"),
       root,
       host,
       "pre-edit",
     );
     return;
+  }
+  const disposition = sessionId
+    ? snapshotDisposition(root, snapshot, route)
+    : null;
+  if (disposition && ["pending", "readonly"].includes(disposition.state)) {
+    deny(
+      disposition.state === "pending"
+        ? "已有差异待裁决，先询问用户处理策略；未答复只允许只读。\n" +
+            observationRecovery(root, sessionId, "pending")
+        : "用户选择仅只读，不能修改或交付",
+      root,
+      host,
+      "pre-edit",
+    );
+    return;
+  }
+  if (edits.length === 0) {
+    deny(
+      "写入工具缺少可检查路径，不能绕过预检与已有差异保护",
+      root,
+      host,
+      "pre-edit",
+    );
+    return;
+  }
+  const normalizedEdits = [];
+  for (const edit of edits) {
+    const path = normalizeEditedPath(root, edit.path);
+    if (!path) {
+      deny(`编辑路径不在当前仓库：${edit.path}`, root, host, "pre-edit");
+      return;
+    }
+    if (
+      disposition?.protectedPaths.some(
+        (protectedPath) =>
+          protectedPath === path ||
+          protectedPath.startsWith(`${path}/`) ||
+          path.startsWith(`${protectedPath}/`),
+      )
+    ) {
+      deny(
+        `已有差异路径受保护，必须由用户明确接管后才可修改：${path}`,
+        root,
+        host,
+        "pre-edit",
+      );
+      return;
+    }
+    normalizedEdits.push({ ...edit, path });
+  }
+  const objects = semanticLookup(root);
+  const state = validState(root);
+  const declaredTask = input.task_id ?? input.taskId;
+  if (!state || (declaredTask !== undefined && state.taskId !== declaredTask)) {
+    deny(
+      `修改 ${normalizedEdits.map((edit) => edit.path).join("、")} 前没有当前任务的有效 semantic-preflight 记录`,
+      root,
+      host,
+      "pre-edit",
+    );
+    return;
+  }
+  for (const edit of normalizedEdits) {
+    if (!pathAllowed(edit.path, state.allowedPaths)) {
+      deny(
+        `修改路径超出 semantic-preflight 允许范围：${edit.path}`,
+        root,
+        host,
+        "pre-edit",
+      );
+      return;
+    }
+    if (edit.delete && !approvedDelete(state, root, objects, edit.path)) {
+      deny(
+        `删除路径没有已批准的 repair 授权：${edit.path}`,
+        root,
+        host,
+        "pre-edit",
+      );
+      return;
+    }
+  }
+  if (workspaceRoot && sessionId) {
+    try {
+      bindSessionRepository(workspaceRoot, sessionId, {
+        repositoryRoot: root,
+        headRevision: route.headRevision,
+        taskId: state.taskId,
+      });
+    } catch (error) {
+      deny(`无法绑定实际编辑仓库：${error.message}`, root, host, "pre-edit");
+      return;
+    }
   }
   writeVisibleStatus(root, {
     state: "ready",
     event: "pre-edit",
     host,
-    message: `允许路径：${relativePath}`,
+    message: `允许路径：${normalizedEdits.map((edit) => edit.path).join("、")}`,
   });
   allow(host);
 }
 
 function stop(root, input, host) {
-  if (!existsSync(resolve(root, ".echo-semantic/baseline.md"))) {
-    clearState(root);
-    clearContinuation(root);
-    writeVisibleStatus(root, {
-      state: "idle",
-      event: "stop",
-      host,
-      message: "项目尚未采用 .echo-semantic/ 基线",
-    });
-    emit();
-    return;
-  }
+  const sessionId = sessionIdFromInput(input);
   const previousRoute = readRoute(root);
   let route;
   try {
     route = computeRoute(root, host || "unknown", "stop", {
       observedEvent: "stop",
+      taskId: taskIdFromInput(input),
     });
   } catch (error) {
     deny(`无法记录停止 Hook 证据：${error.message}`, root, host, "stop");
     return;
   }
-  if (!hasChanges(root)) {
+  const snapshot = sessionId ? loadSessionSnapshot(root, sessionId) : null;
+  const fingerprint = route.worktreeFingerprint;
+  const snapshotChanged =
+    snapshot &&
+    typeof snapshot.worktreeDigest === "string" &&
+    snapshot.worktreeDigest !== fingerprint;
+  const pendingSettlement = ["preflight.json", "continuation.json"].some(
+    (name) => existsSync(projectStatePath(root, name)),
+  );
+  const evidenceDigest = settlementEvidenceDigest(
+    root,
+    previousRoute?.verificationReceipt,
+  );
+  const previousDedupe = sessionId ? loadStopDedupe(root, sessionId) : null;
+  if (
+    previousDedupe &&
+    (previousDedupe.worktreeDigest !== fingerprint ||
+      evidenceDigest === null ||
+      previousDedupe.evidenceDigest !== evidenceDigest)
+  )
+    clearStopDedupe(root, sessionId);
+  const disposition = snapshotDisposition(root, snapshot, route);
+  if (
+    disposition?.state === "preserve" &&
+    !pendingSettlement &&
+    disposition.initial.fingerprint === fingerprint
+  ) {
+    writeVisibleStatus(root, {
+      state: "idle",
+      event: "stop",
+      host,
+      message: "用户选择保留已有差异，未验证；本轮只读结束",
+    });
+    emit();
+    return;
+  }
+  if (
+    disposition &&
+    (disposition.state === "pending" || disposition.state === "readonly")
+  ) {
+    if (disposition.changed) {
+      if (
+        stopHookActive(input) &&
+        previousDedupe?.reason === "existing-changes-policy" &&
+        previousDedupe.worktreeDigest === fingerprint &&
+        evidenceDigest !== null &&
+        previousDedupe.evidenceDigest === evidenceDigest
+      ) {
+        writeVisibleStatus(root, {
+          state: "blocked",
+          event: "stop",
+          host,
+          message: "已有差异策略未满足，待裁决、未验证",
+        });
+        emit();
+        return;
+      }
+      deny(
+        "已有差异策略未满足或观察已变化，请重新盘点并询问用户；修改未经验证",
+        root,
+        host,
+        "stop",
+      );
+      if (sessionId && fingerprint !== null)
+        writeStopDedupe(
+          root,
+          sessionId,
+          fingerprint,
+          "existing-changes-policy",
+          evidenceDigest,
+        );
+      return;
+    }
+    writeVisibleStatus(root, {
+      state: "blocked",
+      event: "stop",
+      host,
+      message:
+        disposition.state === "pending"
+          ? "已有差异待裁决、未验证；本轮只读结束，保留待结算记录"
+          : "用户选择仅只读；已有差异未验证，保留待结算记录",
+    });
+    emit();
+    return;
+  }
+  if (!hasChanges(root) && !snapshotChanged && !pendingSettlement) {
     clearState(root);
     clearContinuation(root);
+    clearStopDedupe(root, sessionId);
     writeVisibleStatus(root, {
       state: "idle",
       event: "stop",
@@ -745,8 +1365,50 @@ function stop(root, input, host) {
     return;
   }
   const state = validState(root);
+  const declaredTask = input.task_id ?? input.taskId;
+  if (state && declaredTask !== undefined && state.taskId !== declaredTask) {
+    deny("Stop 预检不属于当前任务", root, host, "stop");
+    return;
+  }
   if (!state || typeof state.baseRevision !== "string") {
-    if (isRepeatedVerifiedWorktree(previousRoute, route)) {
+    let replay;
+    if (
+      !pendingSettlement &&
+      (disposition?.state !== "adopt" ||
+        previousRoute?.verificationReceipt?.dispositionFingerprint ===
+          dispositionFingerprint(disposition)) &&
+      (replay = repeatedVerification(
+        previousRoute,
+        route,
+        Date.now(),
+        declaredTask ?? null,
+      ))
+    ) {
+      try {
+        withProjectStateLock(root, () => {
+          const after = observeWorktree(root);
+          if (
+            after.headRevision !== route.headRevision ||
+            after.worktreeFingerprint !== route.worktreeFingerprint
+          )
+            throw new Error("收据重验期间工作树已变化");
+          if (
+            ["preflight.json", "continuation.json"].some((name) =>
+              existsSync(projectStatePath(root, name)),
+            )
+          )
+            throw new Error("收据重验期间出现新的待结算记录");
+          if (replay.scope === "repository")
+            assertRepositoryObservations(root, replay);
+          writeProjectJson(root, "route.json", {
+            ...route,
+            verificationScope: previousRoute.verificationReceipt.scope,
+          });
+        });
+      } catch (error) {
+        deny(`无法复用完成收据：${error.message}`, root, host, "stop");
+        return;
+      }
       writeVisibleStatus(root, {
         state: "idle",
         event: "stop",
@@ -756,7 +1418,89 @@ function stop(root, input, host) {
       emit();
       return;
     }
+    if (
+      !snapshot ||
+      typeof snapshot.worktreeDigest !== "string" ||
+      fingerprint === null
+    ) {
+      writeVisibleStatus(root, {
+        state: "idle",
+        event: "stop",
+        host,
+        message: "无法判断会话起始状态，本轮修改未经语义验证",
+      });
+      emit();
+      return;
+    }
+    if (
+      disposition?.state !== "adopt" &&
+      !pendingSettlement &&
+      snapshot.worktreeDigest === fingerprint
+    ) {
+      writeVisibleStatus(root, {
+        state: "idle",
+        event: "stop",
+        host,
+        message: "本轮会话无新增工作树变化，已有差异未经语义验证",
+      });
+      emit();
+      return;
+    }
+    if (stopHookActive(input)) {
+      const dedupe = loadStopDedupe(root, sessionId);
+      if (
+        dedupe &&
+        dedupe.worktreeDigest === fingerprint &&
+        dedupe.reason === "missing-preflight" &&
+        evidenceDigest !== null &&
+        dedupe.evidenceDigest === evidenceDigest
+      ) {
+        writeVisibleStatus(root, {
+          state: "blocked",
+          event: "stop",
+          host,
+          message: "语义门禁未通过：缺少 semantic-preflight 记录（待处理）",
+        });
+        emit();
+        return;
+      }
+    }
     deny("仓库已有变化但没有有效 semantic-preflight 记录", root, host, "stop");
+    if (sessionId && fingerprint !== null) {
+      writeStopDedupe(
+        root,
+        sessionId,
+        fingerprint,
+        "missing-preflight",
+        evidenceDigest,
+      );
+    }
+    return;
+  }
+  const verificationScope = state.verificationScope ?? "task";
+  let settlementIdentity;
+  const settlementPolicyIdentity = JSON.stringify(
+    snapshot?.initialChanges ?? null,
+  );
+  try {
+    withProjectStateLock(root, () => {
+      if (
+        JSON.stringify(readProjectJson(root, "preflight.json")) !==
+        JSON.stringify(state)
+      )
+        throw new Error("启动验证前预检已变化");
+      if (
+        sessionId &&
+        JSON.stringify(
+          loadSessionSnapshot(root, sessionId)?.initialChanges ?? null,
+        ) !== settlementPolicyIdentity
+      )
+        throw new Error("启动验证前差异裁决已变化");
+      settlementIdentity = settlementEvidenceDigest(root, null);
+      if (settlementIdentity === null) throw new Error("无法绑定完成状态身份");
+    });
+  } catch (error) {
+    deny(`无法启动完成验证：${error.message}`, root, host, "stop");
     return;
   }
   const result = spawnSync(
@@ -766,7 +1510,12 @@ function stop(root, input, host) {
       verifier,
       "--root",
       root,
-      "--strict-snapshot",
+      verificationScope === "repository"
+        ? "--repository-scope"
+        : "--task-scope",
+      "--task-id",
+      state.taskId,
+      ...(sessionId ? ["--session-id", sessionId] : []),
       "--base",
       state.baseRevision,
       "--require-change-evidence",
@@ -783,13 +1532,46 @@ function stop(root, input, host) {
     return;
   }
   try {
-    recordVerificationReceipt(root, route, host);
+    const report = JSON.parse(result.stdout);
+    if (
+      report.result !== "passed" ||
+      report.scope !== verificationScope ||
+      (verificationScope === "repository" &&
+        (!/^source:[a-f0-9]{64}$/.test(report.repositorySnapshot ?? "") ||
+          !/^[a-f0-9]{64}$/.test(report.repositoryContentDigest ?? ""))) ||
+      report.taskId !== state.taskId ||
+      !Array.isArray(report.evidencePaths) ||
+      !Array.isArray(report.paths) ||
+      !/^[a-f0-9]{64}$/.test(report.contentDigest)
+    )
+      throw new Error("校验器未返回匹配的任务范围结果");
+    const after = observeWorktree(root);
+    if (
+      after.headRevision !== route.headRevision ||
+      after.worktreeFingerprint !== route.worktreeFingerprint
+    )
+      throw new Error("完成校验期间工作树变化，不能生成成功收据");
+    withProjectStateLock(root, () => {
+      if (settlementEvidenceDigest(root, null) !== settlementIdentity)
+        throw new Error("完成验证期间预检或继续包已变化，保留新记录");
+      if (
+        sessionId &&
+        JSON.stringify(
+          loadSessionSnapshot(root, sessionId)?.initialChanges ?? null,
+        ) !== settlementPolicyIdentity
+      )
+        throw new Error("完成验证期间差异裁决已变化，保留新记录");
+      if (report.scope === "repository")
+        assertRepositoryObservations(root, report);
+      recordVerificationReceipt(root, route, host, disposition, report);
+      clearState(root);
+      clearContinuation(root);
+    });
   } catch (error) {
     deny(`无法记录语义验证收据：${error.message}`, root, host, "stop");
     return;
   }
-  clearState(root);
-  clearContinuation(root);
+  clearStopDedupe(root, sessionId);
   writeVisibleStatus(root, {
     state: "idle",
     event: "stop",
@@ -801,6 +1583,11 @@ function stop(root, input, host) {
 
 function checkpoint(root, host, input) {
   const state = validState(root);
+  const declaredTask = input.task_id ?? input.taskId;
+  if (state && declaredTask !== undefined && state.taskId !== declaredTask) {
+    deny("PreCompact 预检不属于当前任务", root, host, "pre-compact");
+    return;
+  }
   if (state) {
     try {
       const route = computeRoute(root, host || "unknown", "pre-compact", {
@@ -843,7 +1630,33 @@ export function main() {
   const [host, event] = process.argv.slice(2);
   const input = readInput();
   probe(host ?? "unknown", event ?? "unknown", input);
-  const root = repositoryRoot(input.cwd || process.cwd());
+  const workspaceRoot = repositoryRoot(input.cwd || process.cwd());
+  let root = workspaceRoot;
+  let edits;
+  if (
+    event === "pre-edit" &&
+    !(host === "cursor" && !isCursorEditTool(input))
+  ) {
+    try {
+      edits = actualEditTargets(input);
+      const roots = [...new Set(edits.map((edit) => edit.root))];
+      if (roots.length > 1)
+        throw new Error("同一补丁跨越多个 Git 仓库，请拆分编辑");
+      if (roots.length && !workspaceRoot)
+        throw new Error(
+          "宿主工作根不属于 Git 仓库，无法闭合停止验证，请在目标仓库打开会话",
+        );
+      if (roots.length === 1) root = roots[0];
+    } catch (error) {
+      deny(
+        `无法确定实际编辑仓库：${error.message}`,
+        workspaceRoot,
+        host,
+        event,
+      );
+      return;
+    }
+  }
 
   if (
     root &&
@@ -864,10 +1677,8 @@ export function main() {
   }
 
   if (event === "session-start") {
-    if (root && shouldResetPreflight(input)) {
-      clearState(root);
-      clearContinuation(root);
-    }
+    const sessionId = sessionIdFromInput(input);
+    const source = input.source || input.hook_event_source;
     let route = null;
     let continuation = null;
     if (root) {
@@ -881,6 +1692,21 @@ export function main() {
             taskId: taskIdFromInput(input),
           },
         );
+        if (
+          sessionId &&
+          (host === "cursor" ||
+            ["startup", "resume", "clear", "fork"].includes(source))
+        ) {
+          writeSessionSnapshot(root, sessionId, route);
+        }
+        if (
+          shouldResetPreflight(input) &&
+          !(sessionId && loadSessionSnapshot(root, sessionId)?.initialChanges)
+        ) {
+          clearState(root);
+          clearContinuation(root);
+          clearStopDedupe(root, sessionId);
+        }
         continuation = readContinuation(root, taskIdFromInput(input));
       } catch (error) {
         process.stderr.write(
@@ -894,16 +1720,23 @@ export function main() {
         });
       }
     }
-    emit(sessionContext(host, route, continuation));
+    emit(
+      sessionContext(
+        host,
+        route,
+        continuation,
+        root && sessionId ? loadSessionSnapshot(root, sessionId) : null,
+      ),
+    );
   } else if (event === "pre-compact") {
     if (!root) emit();
-    else checkpoint(root, host, input);
+    else runBoundRepositories(root, host, event, input);
   } else if (!root) {
     emit();
   } else if (event === "pre-edit") {
-    checkEditScope(root, input, host);
+    checkEditScope(root, input, host, workspaceRoot, edits);
   } else if (event === "stop") {
-    stop(root, input, host);
+    runBoundRepositories(root, host, event, input);
   } else {
     emit();
   }

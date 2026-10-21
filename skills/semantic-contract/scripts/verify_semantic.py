@@ -25,8 +25,10 @@ import yaml
 sys.dont_write_bytecode = True
 PLUGIN_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
+from artifact_contract import is_local_artifact, tracked_artifact_errors
 from governance_contract import AuthorityError, validate_design_authority
-from preflight_contract import validate_preflight
+from preflight_contract import file_evidence, source_bytes, validate_preflight
+from scan_contract import validate_scan_report
 
 SCHEMA_VERSION = 1
 PLUGIN_ID = "echo-semantic"
@@ -37,6 +39,8 @@ RUNTIME_STATE_FILES = {
     "preflight.json",
     "route.json",
     "continuation.json",
+    "session-snapshot.json",
+    "stop-dedupe.json",
 }
 KIND_BY_DIRECTORY = {
     "maps": "capability_map",
@@ -356,6 +360,7 @@ def source_revision_valid(value: Any) -> bool:
     return isinstance(value, str) and bool(
         GIT_REVISION_PATTERN.fullmatch(value)
         or SOURCE_REVISION_PATTERN.fullmatch(value)
+        or re.fullmatch(r"task:[0-9a-f]{64}", value)
     )
 
 
@@ -411,6 +416,7 @@ def collect_documents(
         "baseline.md",
         *REQUIRED_DIRECTORIES,
         *RUNTIME_STATE_FILES,
+        "local",
     }
     try:
         root_entries = list(semantic_root.iterdir())
@@ -422,6 +428,8 @@ def collect_documents(
             add_error(errors, entry, "语义目录包含合同未声明的根级条目")
         if entry.is_symlink():
             add_error(errors, entry, "语义目录不能使用符号链接")
+        if entry.name == "local" and not entry.is_dir():
+            add_error(errors, entry, "本地产物根必须是目录")
 
     readme = semantic_root / "README.md"
     if not readme.is_file():
@@ -595,6 +603,10 @@ def consume_git_blob_batch(
         process.kill()
         process.wait()
         raise
+    finally:
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
 
 
 def git_blobs(
@@ -641,16 +653,16 @@ def source_digest_at_revision(
         for relative, (mode, object_type, object_id) in tree.items()
         if object_type == "blob"
         and mode != "120000"
-        and relative != SEMANTIC_DIRECTORY
-        and not relative.startswith(f"{SEMANTIC_DIRECTORY}/")
+        and relative.casefold() != SEMANTIC_DIRECTORY
+        and not relative.casefold().startswith(f"{SEMANTIC_DIRECTORY}/")
     }
     symlink_object_ids = {
         object_id
         for relative, (mode, object_type, object_id) in tree.items()
         if object_type == "blob"
         and mode == "120000"
-        and relative != SEMANTIC_DIRECTORY
-        and not relative.startswith(f"{SEMANTIC_DIRECTORY}/")
+        and relative.casefold() != SEMANTIC_DIRECTORY
+        and not relative.casefold().startswith(f"{SEMANTIC_DIRECTORY}/")
     }
     git_blob_digests(root, regular_object_ids, digest_cache)
     git_blobs(
@@ -661,7 +673,7 @@ def source_digest_at_revision(
     )
     digest = hashlib.sha256()
     for relative, (mode, object_type, object_id) in sorted(tree.items()):
-        if relative == SEMANTIC_DIRECTORY or relative.startswith(
+        if relative.casefold() == SEMANTIC_DIRECTORY or relative.casefold().startswith(
             f"{SEMANTIC_DIRECTORY}/"
         ):
             continue
@@ -2287,6 +2299,9 @@ def validate_special(
             add_error(errors, path, "scope 必须是字符串、列表或对象")
         for field in ("inspected_paths", "candidate_refs", "unresolved"):
             require_string_list(data, field, path, errors)
+        if "scan_report" in data:
+            for error in validate_scan_report(data):
+                add_error(errors, path, error)
 
 
 def validate_relations(
@@ -2500,7 +2515,7 @@ def validate_continuity_repository_evidence(
 def parse_source_ref(value: str) -> tuple[str, str | None] | None:
     path_part, separator, anchor = value.partition("#")
     path = safe_relative(path_part)
-    if path is None or (separator and not anchor):
+    if path is None or is_local_artifact(path) or (separator and not anchor):
         return None
     return path, anchor or None
 
@@ -2509,16 +2524,17 @@ def content_at_revision(root: Path, revision: str, relative: str) -> bytes:
     if GIT_REVISION_PATTERN.fullmatch(revision):
         result = run_git(root, "show", f"{revision}:{relative}", binary=True)
         return result if isinstance(result, bytes) else result.encode("utf-8")
-    path = root / relative
-    if not path.is_file() or path.is_symlink():
-        raise RuntimeError("当前工作树不存在普通文件")
-    return path.read_bytes()
+    try:
+        return source_bytes(root, relative)
+    except (ValueError, OSError) as error:
+        raise RuntimeError(f"当前工作树不存在可信普通文件：{relative}") from error
 
 
 def validate_source_refs(
     root: Path,
     documents: list[tuple[Path, str, dict[str, Any], str]],
     errors: list[str],
+    content_identities: dict[str, str] | None = None,
 ) -> None:
     current_source_revision = f"source:{source_digest(root)}"
     work: list[tuple[Path, str, list[Any]]] = []
@@ -2581,6 +2597,15 @@ def validate_source_refs(
                 continue
             if anchor and anchor not in content.decode("utf-8", errors="replace"):
                 add_error(errors, object_path, f"源码引用锚点不存在：{raw}")
+    if content_identities is not None:
+        content_identities.update(
+            {
+                json.dumps([revision, relative], ensure_ascii=False): hashlib.sha256(
+                    content
+                ).hexdigest()
+                for (revision, relative), content in cache.items()
+            }
+        )
 
 
 def git_file_paths(root: Path) -> list[str]:
@@ -2598,8 +2623,8 @@ def git_file_paths(root: Path) -> list[str]:
         path
         for path in raw.decode("utf-8", errors="strict").split("\0")
         if path
-        and path != SEMANTIC_DIRECTORY
-        and not path.startswith(f"{SEMANTIC_DIRECTORY}/")
+        and path.casefold() != SEMANTIC_DIRECTORY
+        and not path.casefold().startswith(f"{SEMANTIC_DIRECTORY}/")
     )
 
 
@@ -2687,7 +2712,7 @@ def load_preflight(root: Path) -> dict[str, Any] | None:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise RuntimeError(f"无法读取预检状态：{error}") from error
-    if not isinstance(data, dict) or data.get("schemaVersion") != 1:
+    if not isinstance(data, dict) or data.get("schemaVersion") != 2:
         raise RuntimeError("预检状态版本无效")
     return data
 
@@ -2814,10 +2839,12 @@ def validate_change_evidence(
     base: str,
     objects: dict[str, tuple[str, dict[str, Any], Path]],
     errors: list[str],
+    selected_paths: list[str] | None = None,
+    task_digest: str | None = None,
 ) -> None:
     try:
         run_git(root, "cat-file", "-e", f"{base}^{{commit}}")
-        paths = changed_paths(root, base)
+        paths = changed_paths(root, base) if selected_paths is None else selected_paths
     except RuntimeError as error:
         add_error(errors, semantic_root, f"无法读取变更基准：{error}")
         return
@@ -3078,7 +3105,11 @@ def validate_change_evidence(
                                     semantic_root,
                                     f"等价 Evidence 的 before_revision 未绑定删除基准：{evidence_ref}",
                                 )
-                            current_revision = f"source:{source_digest(root)}"
+                            current_revision = (
+                                f"source:{source_digest(root)}"
+                                if task_digest is None
+                                else f"task:{task_digest}"
+                            )
                             if evidence.get("after_revision") != current_revision:
                                 add_error(
                                     errors,
@@ -3169,21 +3200,367 @@ def validate_change_evidence(
             add_error(errors, semantic_root, "架构类变化没有同次更新正式 design/ADR")
 
 
-def validate_repository(
-    root: Path, strict_snapshot: bool = False, base: str | None = None
-) -> list[str]:
-    errors: list[str] = []
-    semantic_root = root / SEMANTIC_DIRECTORY
-    tracked_runtime = str(
-        run_git(
+def validate_task(
+    root: Path,
+    base: str,
+    task_id: str,
+    session_id: str | None = None,
+    *,
+    repository_scope: bool = False,
+) -> tuple[list[str], dict[str, Any]]:
+    """默认只读任务闭包；显式全项目模式在相同授权检查后额外验证完整快照。"""
+    errors: list[str] = tracked_artifact_errors(root)
+    state = load_preflight(root)
+    if state is None:
+        return [*errors, "缺少任务预检记录"], {}
+    reuse = state.get("reuseCheck")
+    if isinstance(reuse, dict) and isinstance(reuse.get("evidence"), list):
+        for item in reuse["evidence"]:
+            path = item.get("path") if isinstance(item, dict) else None
+            if isinstance(path, str) and is_local_artifact(path):
+                errors.append(f"本地产物不能作为任务源码或复用依据：{path}")
+    if errors:
+        return errors, {}
+    errors.extend(
+        validate_preflight(
+            state,
             root,
-            "ls-files",
-            "--",
-            *[f"{SEMANTIC_DIRECTORY}/{name}" for name in sorted(RUNTIME_STATE_FILES)],
+            expected_base=base,
+            current_head=str(run_git(root, "rev-parse", "HEAD")).strip(),
+            phase="verify",
         )
-    ).splitlines()
-    for relative in tracked_runtime:
-        add_error(errors, root / relative, "运行态文件不能被 Git 跟踪")
+    )
+    if state.get("taskId") != task_id:
+        errors.append("任务标识不一致")
+    scope = "repository" if repository_scope else "task"
+    if state.get("verificationScope", "task") != scope:
+        errors.append("完成验证范围与预检 verificationScope 不一致")
+    if errors:
+        return errors, {}
+    paths = changed_paths(root, base)
+    runtime_paths = {f"{SEMANTIC_DIRECTORY}/{name}" for name in RUNTIME_STATE_FILES}
+    paths = [p for p in paths if p not in runtime_paths]
+    protected: list[str] = []
+    if session_id:
+        policy = subprocess.run(
+            [
+                "node",
+                str(PLUGIN_ROOT / "scripts/session-changes.mjs"),
+                "inspect",
+                "--root",
+                str(root),
+                "--session-id",
+                session_id,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        try:
+            disposition = json.loads(policy.stdout)["disposition"]
+            if policy.returncode or (
+                disposition is not None
+                and disposition.get("state") not in {"preserve", "adopt"}
+            ):
+                errors.append("无法绑定已确认的已有差异策略")
+            else:
+                protected = disposition.get("protectedPaths", []) if disposition else []
+        except (ValueError, KeyError, TypeError):
+            errors.append("无法核对已有差异保护")
+    for path in paths:
+        if not allowed_path(path, state["allowedPaths"]) and path not in protected:
+            errors.append(f"变化超出预检允许路径：{path}")
+    # 受保护的已有差异由会话策略核对；验证只认当前任务明确允许的变化。
+    selected = [p for p in paths if allowed_path(p, state["allowedPaths"])]
+    if ".echo-semantic/baseline.md" in selected and not repository_scope:
+        errors.append("正式 Baseline 更新需要显式全项目校验，不能由局部收据证明")
+    evidence = {item["path"] for item in state["reuseCheck"]["evidence"]}
+    pending = set(evidence) | {p for p in selected if p.startswith(".echo-semantic/")}
+    documents: list[tuple[Path, str, dict[str, Any], str]] = []
+    contents: dict[str, bytes] = {}
+    reference_contents: dict[tuple[str, str], bytes] = {}
+    processed: set[str] = set()
+    directories = {
+        "map": "maps",
+        "behavior": "behaviors",
+        "rule": "rules",
+        "evidence": "evidence",
+        "finding": "findings",
+        "audit": "audits",
+        "discovery": "discovery",
+        "asset": "assets",
+    }
+    while pending:
+        relative = pending.pop()
+        if relative in processed:
+            continue
+        processed.add(relative)
+        if is_local_artifact(relative):
+            errors.append(f"本地产物不能作为任务源码或复用依据：{relative}")
+            continue
+        if len(processed) > 512:
+            errors.append("相关依据闭包超过有界限制，需要明确拆分任务")
+            break
+        if not (root / relative).exists() and relative in state.get("deletePaths", []):
+            continue
+        try:
+            content = source_bytes(root, relative)
+            contents[relative] = content
+        except (ValueError, OSError) as error:
+            errors.append(str(error))
+            continue
+        parts = PurePosixPath(relative).parts
+        kind = (
+            KIND_BY_DIRECTORY.get(parts[1])
+            if len(parts) == 3 and parts[0] == SEMANTIC_DIRECTORY
+            else None
+        )
+        if not kind:
+            continue
+        parsed = parse_document_text(content.decode("utf-8"), relative, errors)
+        if parsed is None:
+            continue
+        data, body = parsed
+        documents.append((root / relative, kind, data, body))
+        validate_common(root / relative, kind, data, body, errors)
+        if kind == "capability_map":
+            validate_map(data, root / relative, errors)
+        elif kind in {"behavior", "rule"}:
+            validate_behavior_rule(data, kind, root / relative, errors)
+        elif kind == "asset":
+            validate_asset(data, root / relative, errors)
+        else:
+            validate_special(data, kind, root / relative, errors)
+
+        def references(value: Any, revision: str | None = None) -> None:
+            if isinstance(value, dict):
+                revision = value.get("revision", value.get("observed_at", revision))
+                for field, child in value.items():
+                    if field in {"code_refs", "source_refs"} and isinstance(
+                        child, list
+                    ):
+                        for ref in child:
+                            parsed_ref = (
+                                parse_source_ref(ref) if isinstance(ref, str) else None
+                            )
+                            if parsed_ref is None:
+                                errors.append(f"相关源码引用格式无效：{ref}")
+                                continue
+                            path, anchor = parsed_ref
+                            try:
+                                if not source_revision_valid(revision):
+                                    raise ValueError(f"相关源码版本无效：{revision}")
+                                effective_revision = revision
+                                if (
+                                    not GIT_REVISION_PATTERN.fullmatch(revision)
+                                    and path in state.get("deletePaths", [])
+                                    and not (root / path).exists()
+                                ):
+                                    effective_revision = base
+                                if GIT_REVISION_PATTERN.fullmatch(effective_revision):
+                                    key = (effective_revision, path)
+                                    if key not in reference_contents:
+                                        reference_contents[key] = content_at_revision(
+                                            root, effective_revision, path
+                                        )
+                                    text = reference_contents[key]
+                                else:
+                                    text = content_at_revision(
+                                        root, effective_revision, path
+                                    )
+                                    contents[path] = text
+                                if anchor and anchor not in text.decode(
+                                    "utf-8", errors="replace"
+                                ):
+                                    errors.append(f"相关源码锚点不存在：{ref}")
+                            except (OSError, RuntimeError, ValueError) as error:
+                                errors.append(str(error))
+                    elif field in SEMANTIC_REF_TYPES or field in {
+                        "canonical_asset_ref",
+                        "candidate_refs",
+                        "replacement_refs",
+                    }:
+                        refs = child if isinstance(child, list) else [child]
+                        for ref in refs:
+                            if not isinstance(ref, str) or not re.fullmatch(
+                                r"[a-z0-9][a-z0-9.-]*", ref
+                            ):
+                                errors.append(f"相关对象引用无效：{ref}")
+                                continue
+                            directory = directories.get(ref.split(".", 1)[0])
+                            if directory:
+                                pending.add(
+                                    f"{SEMANTIC_DIRECTORY}/{directory}/{ref}.md"
+                                )
+                            else:
+                                errors.append(f"对象引用不能按合同定位：{ref}")
+                    else:
+                        references(child, revision)
+            elif isinstance(value, list):
+                for child in value:
+                    references(child, revision)
+
+        if not (kind == "discovery" and "scan_report" in data):
+            references(data)
+    for relative in selected:
+        if (root / relative).is_file() and not relative.startswith(".echo-semantic/"):
+            try:
+                contents[relative] = source_bytes(root, relative)
+            except (OSError, ValueError) as error:
+                errors.append(str(error))
+    objects = {
+        data["id"]: (kind, data, path)
+        for path, kind, data, _ in documents
+        if isinstance(data.get("id"), str)
+    }
+    if len(objects) != len(documents):
+        errors.append("相关对象身份缺失或重复")
+    for reference in state.get("semanticRefs", []) + state.get("repairRefs", []):
+        if reference not in objects:
+            errors.append(f"任务相关语义引用未闭合：{reference}")
+    boundary_maps = {
+        boundary: data
+        for kind, data, _ in objects.values()
+        if kind == "capability_map"
+        for boundary in data.get("boundary_refs", [])
+    }
+    for path, kind, data, _ in documents:
+        if kind == "behavior":
+            owner = boundary_maps.get(data.get("boundary"))
+            if owner is None or data.get("id") not in owner.get("behavior_refs", []):
+                errors.append(f"相关行为缺少归属地图：{path}")
+        elif (
+            kind in {"finding", "audit"}
+            and data.get("boundary_ref") not in boundary_maps
+        ):
+            errors.append(f"相关对象缺少边界地图：{path}")
+
+        def check_relations(value: Any, path: Path = path) -> None:
+            if isinstance(value, dict):
+                for field, child in value.items():
+                    if field in SEMANTIC_REF_TYPES and isinstance(child, list):
+                        for ref in child:
+                            target = objects.get(ref)
+                            if target is None or target[0] != SEMANTIC_REF_TYPES[field]:
+                                errors.append(
+                                    f"相关对象引用不存在或类型不一致：{path} {field} {ref}"
+                                )
+                    else:
+                        check_relations(child)
+            elif isinstance(value, list):
+                for child in value:
+                    check_relations(child)
+
+        if not (kind == "discovery" and "scan_report" in data):
+            check_relations(data)
+    reference_digests = {
+        json.dumps([revision, path], ensure_ascii=False): hashlib.sha256(
+            content
+        ).hexdigest()
+        for (revision, path), content in sorted(reference_contents.items())
+    }
+    source_signature = hashlib.sha256(
+        json.dumps(
+            {
+                "taskId": task_id,
+                "base": base,
+                "paths": [p for p in selected if not p.startswith(".echo-semantic/")],
+                **(
+                    {"referenceContents": reference_digests}
+                    if reference_digests
+                    else {}
+                ),
+                "contents": {
+                    p: hashlib.sha256(content).hexdigest()
+                    for p, content in sorted(contents.items())
+                    if not p.startswith(".echo-semantic/")
+                },
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    signature = hashlib.sha256(
+        json.dumps(
+            {
+                "taskId": task_id,
+                "base": base,
+                "paths": selected,
+                **(
+                    {"referenceContents": reference_digests}
+                    if reference_digests
+                    else {}
+                ),
+                "contents": {
+                    p: hashlib.sha256(content).hexdigest()
+                    for p, content in sorted(contents.items())
+                },
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    validate_change_evidence(
+        root,
+        root / SEMANTIC_DIRECTORY,
+        base,
+        objects,
+        errors,
+        selected_paths=selected,
+        task_digest=source_signature,
+    )
+    report = {
+        "scope": scope,
+        "taskId": task_id,
+        "baseRevision": base,
+        "paths": selected,
+        "evidencePaths": sorted(contents),
+        "referenceDigests": reference_digests,
+        "contentDigest": signature,
+        "sourceSnapshot": f"task:{source_signature}",
+        "globalClosure": "not_checked",
+    }
+    if repository_scope and not errors:
+        task_evidence = {
+            path: hashlib.sha256(content).hexdigest()
+            for path, content in contents.items()
+        }
+        task_evidence.update(
+            {path: None for path in selected if not (root / path).exists()}
+        )
+        if reference_digests:
+            task_evidence = {"files": task_evidence, "references": reference_digests}
+        repository_errors, proof = repository_receipt_report(root, task_evidence)
+        errors.extend(repository_errors)
+        if not errors:
+            report["repositorySnapshot"] = proof["repositorySnapshot"]
+            report["repositoryContentDigest"] = proof["repositoryContentDigest"]
+            report["repositoryObservations"] = proof["repositoryObservations"]
+            report["taskEvidenceDigests"] = task_evidence
+            report["evidencePaths"] = sorted(
+                set(contents) | set(proof["evidencePaths"])
+            )
+            report["contentDigest"] = hashlib.sha256(
+                json.dumps(
+                    {
+                        "scope": scope,
+                        "taskDigest": signature,
+                        "repositoryContentDigest": proof["repositoryContentDigest"],
+                    },
+                    sort_keys=True,
+                ).encode()
+            ).hexdigest()
+    return errors, report
+
+
+def validate_repository(
+    root: Path,
+    strict_snapshot: bool = False,
+    base: str | None = None,
+    *,
+    identity_out: dict[str, Any] | None = None,
+) -> list[str]:
+    errors: list[str] = tracked_artifact_errors(root)
+    semantic_root = root / SEMANTIC_DIRECTORY
     documents = collect_documents(semantic_root, errors)
     for path, kind, data, body in documents:
         validate_common(path, kind, data, body, errors)
@@ -3202,12 +3579,251 @@ def validate_repository(
     baseline_entry = next((item for item in documents if item[1] == "baseline"), None)
     if baseline_entry:
         validate_regions(root, baseline_entry[2], baseline_entry[0], errors)
-        validate_source_refs(root, documents, errors)
+        referenced = {} if identity_out is not None else None
+        validate_source_refs(root, documents, errors, referenced)
         if strict_snapshot:
             validate_strict_snapshot(root, baseline_entry[2], baseline_entry[0], errors)
+        if identity_out is not None and not errors:
+            entries = repository_material_entries(root)
+            snapshot = f"source:{source_digest(root)}"
+            if entries != identity_out.pop(
+                "_initialEntries", None
+            ) or snapshot != identity_out.pop("_initialSnapshot", None):
+                errors.append("全项目校验期间正式材料或源码发生变化")
+            for key, digest in (referenced or {}).items():
+                revision, relative = json.loads(key)
+                if (
+                    hashlib.sha256(
+                        content_at_revision(root, revision, relative)
+                    ).hexdigest()
+                    != digest
+                ):
+                    errors.append(f"全项目校验期间源码引用变化：{relative}")
+            stable_entries = {
+                path: {k: v for k, v in value.items() if k != "observation"}
+                for path, value in entries.items()
+            }
+            if not errors:
+                observed_files = {
+                    path: [str(v) for v in value["observation"]]
+                    for path, value in entries.items()
+                    if value["kind"] == "file"
+                }
+                for key in referenced or {}:
+                    revision, relative = json.loads(key)
+                    if revision.startswith("source:"):
+                        info = (root / relative).lstat()
+                        observed_files[relative] = [
+                            str(v)
+                            for v in (
+                                info.st_dev,
+                                info.st_ino,
+                                info.st_mode,
+                                info.st_size,
+                                info.st_mtime_ns,
+                                info.st_ctime_ns,
+                            )
+                        ]
+                observed_directories = {
+                    directory.relative_to(root).as_posix(): sorted(
+                        p.name
+                        for p in directory.iterdir()
+                        if directory != semantic_root
+                        or p.name not in {*RUNTIME_STATE_FILES, "local"}
+                    )
+                    for directory in [
+                        semantic_root,
+                        *[semantic_root / name for name in REQUIRED_DIRECTORIES],
+                    ]
+                }
+                identity_out.update(
+                    {
+                        "repositorySnapshot": snapshot,
+                        "repositoryContentDigest": hashlib.sha256(
+                            json.dumps(
+                                {
+                                    "snapshot": snapshot,
+                                    "semanticEntries": stable_entries,
+                                    "referencedContents": referenced,
+                                },
+                                sort_keys=True,
+                            ).encode()
+                        ).hexdigest(),
+                        "evidencePaths": sorted(entries),
+                        "repositoryObservations": {
+                            "files": observed_files,
+                            "directories": observed_directories,
+                        },
+                    }
+                )
     if base is not None:
         validate_change_evidence(root, semantic_root, base, objects, errors)
     return errors
+
+
+def observe_reference_digests(root: Path, references: dict[str, str]) -> dict[str, str]:
+    """以既有Git解析权威重验历史blob，绝不读取同名当前文件。"""
+    if not isinstance(references, dict):
+        raise TypeError("收据历史引用必须是身份摘要映射")
+    historical = {}
+    for key, expected in references.items():
+        try:
+            revision, path = json.loads(key)
+        except (ValueError, TypeError) as error:
+            raise ValueError("收据历史引用身份无效") from error
+        if (
+            not isinstance(revision, str)
+            or not GIT_REVISION_PATTERN.fullmatch(revision)
+            or not isinstance(path, str)
+            or parse_source_ref(path) != (path, None)
+            or not isinstance(expected, str)
+            or not re.fullmatch(r"[a-f0-9]{64}", expected)
+        ):
+            raise ValueError("收据历史引用身份或摘要无效")
+        actual = hashlib.sha256(content_at_revision(root, revision, path)).hexdigest()
+        if actual != expected:
+            raise ValueError(f"收据历史引用内容变化：{revision}:{path}")
+        historical[key] = actual
+    return historical
+
+
+def repository_receipt_report(
+    root: Path, task_evidence: dict[str, Any] | None = None
+) -> tuple[list[str], dict[str, Any]]:
+    """真实重验完整合同及当前引用内容，不写收据或消费任务状态。"""
+    task_evidence = {} if task_evidence is None else task_evidence
+    if not isinstance(task_evidence, dict):
+        raise TypeError("收据任务依据必须是路径摘要映射")
+
+    # 旧收据保留路径摘要映射；新历史依据使用显式信封，不能冒充当前文件。
+    envelope = (
+        set(task_evidence) == {"files", "references"}
+        and isinstance(task_evidence["files"], dict)
+        and isinstance(task_evidence["references"], dict)
+    )
+    task_files = task_evidence["files"] if envelope else task_evidence
+    task_references = task_evidence["references"] if envelope else {}
+
+    def observe_task_evidence():
+        observed = {}
+        for path, expected in task_files.items():
+            if (
+                not isinstance(path, str)
+                or safe_relative(path) != path
+                or is_local_artifact(path)
+            ):
+                raise ValueError("收据任务依据路径无效")
+            target = root / path
+            if expected is None:
+                try:
+                    target.lstat()
+                except (FileNotFoundError, NotADirectoryError):
+                    observed[path] = None
+                    continue
+                raise ValueError(f"已删除的任务依据重新出现：{path}")
+            if not isinstance(expected, str) or not re.fullmatch(
+                r"[a-f0-9]{64}", expected
+            ):
+                raise ValueError("收据任务依据摘要无效")
+            if hashlib.sha256(source_bytes(root, path)).hexdigest() != expected:
+                raise ValueError(f"收据任务依据内容变化：{path}")
+            info = target.lstat()
+            observed[path] = [
+                str(v)
+                for v in (
+                    info.st_dev,
+                    info.st_ino,
+                    info.st_mode,
+                    info.st_size,
+                    info.st_mtime_ns,
+                    info.st_ctime_ns,
+                )
+            ]
+        historical = observe_reference_digests(root, task_references)
+        return {"files": observed, "references": historical} if envelope else observed
+
+    initial_task_evidence = observe_task_evidence()
+    identity: dict[str, Any] = {
+        "_initialEntries": repository_material_entries(root),
+        "_initialSnapshot": f"source:{source_digest(root)}",
+    }
+    errors = validate_repository(root, strict_snapshot=True, identity_out=identity)
+    identity.pop("_initialEntries", None)
+    identity.pop("_initialSnapshot", None)
+    if not errors:
+        final_task_evidence = observe_task_evidence()
+        if final_task_evidence != initial_task_evidence:
+            errors.append("全项目校验期间任务依据身份变化")
+        identity["repositoryContentDigest"] = hashlib.sha256(
+            json.dumps(
+                {
+                    "repository": identity["repositoryContentDigest"],
+                    "taskEvidence": task_evidence,
+                },
+                sort_keys=True,
+            ).encode()
+        ).hexdigest()
+        identity["repositoryObservations"]["files"].update(
+            final_task_evidence["files"] if envelope else final_task_evidence
+        )
+    return errors, {"scope": "repository", **identity}
+
+
+def repository_material_entries(root: Path) -> dict[str, Any]:
+    """只观察正式目录；原件摘要与读前后身份分开，运行态/local 不参与。"""
+    semantic_root = root / SEMANTIC_DIRECTORY
+    entries = {}
+    if not semantic_root.is_dir() or semantic_root.is_symlink():
+        return {SEMANTIC_DIRECTORY: {"kind": "invalid"}}
+    directories = [semantic_root]
+    directories.extend(
+        semantic_root / name
+        for name in REQUIRED_DIRECTORIES
+        if (semantic_root / name).is_dir() and not (semantic_root / name).is_symlink()
+    )
+    for directory in directories:
+        for path in directory.iterdir():
+            if directory == semantic_root and path.name in {
+                *RUNTIME_STATE_FILES,
+                "local",
+            }:
+                continue
+            relative = path.relative_to(root).as_posix()
+            info = path.lstat()
+            entry: dict[str, Any] = {"kind": "other"}
+            if path.is_symlink():
+                entry["kind"] = "symlink"
+            elif path.is_dir():
+                entry["kind"] = "directory"
+            elif path.is_file() and (
+                (
+                    directory == semantic_root
+                    and path.name in {"README.md", "baseline.md"}
+                )
+                or (
+                    directory != semantic_root
+                    and (path.suffix == ".md" or path.name == ".gitkeep")
+                )
+            ):
+                entry = {
+                    "kind": "file",
+                    "sha256": hashlib.sha256(
+                        source_bytes(
+                            root, relative, max_bytes=max(8 * 1024 * 1024, info.st_size)
+                        )
+                    ).hexdigest(),
+                }
+            if entry["kind"] != "directory":
+                entry["observation"] = [
+                    info.st_dev,
+                    info.st_ino,
+                    info.st_mode,
+                    info.st_size,
+                    info.st_mtime_ns,
+                    info.st_ctime_ns,
+                ]
+            entries[relative] = entry
+    return entries
 
 
 def write_document(path: Path, data: dict[str, Any], headings: Iterable[str]) -> None:
@@ -3629,7 +4245,7 @@ def run_self_test() -> int:
         preflight_path.write_text(
             json.dumps(
                 {
-                    "schemaVersion": 1,
+                    "schemaVersion": 2,
                     "pluginId": PLUGIN_ID,
                     "scope": "task",
                     "repositoryRoot": str(root.resolve()),
@@ -3639,6 +4255,17 @@ def run_self_test() -> int:
                     "kind": "refactor",
                     "risk": "high",
                     "allowedPaths": ["src"],
+                    "reuseCheck": {
+                        "searchPaths": ["."],
+                        "decision": "new",
+                        "reason": "测试修复依据",
+                        "candidates": [],
+                        "evidence": [
+                            file_evidence(
+                                root, ".echo-semantic/findings/finding.repair.md"
+                            )
+                        ],
+                    },
                     "reuse": ["finding.repair"],
                     "verifications": ["project test"],
                     "basis": [],
@@ -3848,6 +4475,31 @@ def main() -> int:
     )
     parser.add_argument("--base", help="用于增量变更门禁的 Git 基准 revision")
     parser.add_argument(
+        "--task-scope", action="store_true", help="只验证当前任务与相关引用闭包"
+    )
+    parser.add_argument(
+        "--repository-scope",
+        action="store_true",
+        help="按预检显式声明完成全项目严格验证，并输出绑定任务的范围报告",
+    )
+    parser.add_argument(
+        "--repository-receipt-check",
+        action="store_true",
+        help="只读重验全项目收据的完整内容身份",
+    )
+    parser.add_argument(
+        "--reference-receipt-check",
+        action="store_true",
+        help="只读重验既有task收据的历史引用摘要，不生成任务完成结论",
+    )
+    parser.add_argument(
+        "--task-evidence-stdin",
+        action="store_true",
+        help="收据重验从标准输入读取既有任务依据身份",
+    )
+    parser.add_argument("--task-id", help="任务范围验证必须绑定当前任务")
+    parser.add_argument("--session-id", help="核对宿主会话的已有差异保护")
+    parser.add_argument(
         "--require-change-evidence",
         action="store_true",
         help="对高风险差异强制语义和设计依据",
@@ -3867,6 +4519,10 @@ def main() -> int:
         "--continuity-report", type=Path, help="可选的连续性 JSON 报告路径"
     )
     args = parser.parse_args()
+    if args.task_evidence_stdin and not (
+        args.repository_receipt_check or args.reference_receipt_check
+    ):
+        parser.error("task-evidence-stdin 仅用于既有收据重验")
     continuity_requested = bool(
         args.continuity_merge_base
         or args.continuity_predecessor
@@ -3878,6 +4534,12 @@ def main() -> int:
             args.root is not None
             or args.base is not None
             or args.strict_snapshot
+            or args.task_scope
+            or args.repository_scope
+            or args.repository_receipt_check
+            or args.reference_receipt_check
+            or args.task_id
+            or args.session_id
             or continuity_requested
         ):
             parser.error("--self-test 不能与仓库参数同时使用")
@@ -3888,6 +4550,80 @@ def main() -> int:
     try:
         root_value = run_git(supplied, "rev-parse", "--show-toplevel")
         root = Path(str(root_value).strip()).resolve()
+        if args.reference_receipt_check:
+            if (
+                not args.task_evidence_stdin
+                or args.repository_receipt_check
+                or args.task_scope
+                or args.repository_scope
+                or args.task_id
+                or args.session_id
+                or args.base
+                or args.strict_snapshot
+                or args.require_change_evidence
+                or continuity_requested
+            ):
+                parser.error(
+                    "引用收据重验须从stdin提供既有摘要，不能混用任务或全项目验证"
+                )
+            try:
+                raw = sys.stdin.buffer.read(1024 * 1024 + 1)
+                if len(raw) > 1024 * 1024:
+                    raise ValueError("引用收据依据超过1 MiB")
+                references = observe_reference_digests(root, json.loads(raw))
+            except (OSError, RuntimeError, ValueError, TypeError) as error:
+                print(
+                    json.dumps(
+                        {
+                            "scope": "references",
+                            "result": "failed",
+                            "errors": [str(error)],
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+                return 1
+            print(
+                json.dumps(
+                    {
+                        "scope": "references",
+                        "result": "passed",
+                        "referenceDigests": references,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return 0
+        if args.repository_receipt_check:
+            if (
+                args.task_scope
+                or args.repository_scope
+                or args.task_id
+                or args.session_id
+                or args.base
+                or args.strict_snapshot
+                or args.require_change_evidence
+                or continuity_requested
+            ):
+                parser.error("全项目收据重验不能混用任务、基准或其它验证模式")
+            task_evidence = {}
+            if args.task_evidence_stdin:
+                raw = sys.stdin.buffer.read(1024 * 1024 + 1)
+                if len(raw) > 1024 * 1024:
+                    raise ValueError("收据任务依据超过 1 MiB")
+                task_evidence = json.loads(raw)
+            errors, report = repository_receipt_report(root, task_evidence)
+            print(
+                json.dumps(
+                    {
+                        **report,
+                        "result": "failed" if errors else "passed",
+                        "errors": errors,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return 1 if errors else 0
         if continuity_requested:
             if (
                 not args.continuity_merge_base
@@ -3900,6 +4636,10 @@ def main() -> int:
                 )
             if (
                 args.base is not None
+                or args.task_scope
+                or args.repository_scope
+                or args.task_id
+                or args.session_id
                 or args.strict_snapshot
                 or args.require_change_evidence
             ):
@@ -3922,10 +4662,29 @@ def main() -> int:
         base = args.base if args.require_change_evidence or args.base else None
         if args.require_change_evidence and not base:
             parser.error("--require-change-evidence 必须同时提供 --base")
-        errors = validate_repository(
-            root, strict_snapshot=args.strict_snapshot, base=base
-        )
-    except (OSError, RuntimeError, UnicodeError) as error:
+        if args.task_scope or args.repository_scope:
+            if (
+                not args.task_id
+                or not base
+                or args.strict_snapshot
+                or continuity_requested
+                or (args.task_scope and args.repository_scope)
+            ):
+                parser.error(
+                    "完成验证须提供 task-id 与 base，不能混用范围、全局快照或连续性模式"
+                )
+            errors, task_report = validate_task(
+                root,
+                base,
+                args.task_id,
+                args.session_id,
+                repository_scope=args.repository_scope,
+            )
+        else:
+            errors = validate_repository(
+                root, strict_snapshot=args.strict_snapshot, base=base
+            )
+    except (OSError, RuntimeError, UnicodeError, ValueError, TypeError) as error:
         print(f"语义治理校验失败：{error}", file=sys.stderr)
         return 1
     if errors:
@@ -3933,7 +4692,10 @@ def main() -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    print(f"语义治理校验通过：{root / SEMANTIC_DIRECTORY}")
+    if args.task_scope or args.repository_scope:
+        print(json.dumps({**task_report, "result": "passed"}, ensure_ascii=False))
+    else:
+        print(f"语义治理校验通过：{root / SEMANTIC_DIRECTORY}")
     return 0
 
 

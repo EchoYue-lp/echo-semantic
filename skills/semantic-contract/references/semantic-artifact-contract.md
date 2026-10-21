@@ -207,3 +207,39 @@ revision 必须返回非零。报告是可重算的命令输出或 CI Artifact�
 
 任何对象状态都不能使用 `clean`、`safe` 或其它绝对安全词。结构校验通过只证明合同成立，不证明业务正确、
 审查充分、测试通过或系统没有缺陷。
+
+## 任务范围复用与验证合同
+
+预检 schemaVersion 为 2，保留现有任务身份、风险、路径和验证要求，并要求 reuseCheck。它包含 searchPaths（实际检索范围）、decision（reuse、extend、new）、reason、candidates 与 evidence。候选包含 path、symbol、selected、reason；依据包含 path、contentDigest、mutable。复用/扩展必须选定候选，新增必须说明理由且没有选定候选；路径与符号核对不证明语义等价。固定依据变化使记录失效，可修改依据只允许属于 allowedPaths，完成时验证其当前内容。
+
+语义引用须在 evidence 中通过合同文件名直接定位；不为解析一个引用读取所有语义对象。单个依据是根内有界普通文件（最多 8 MiB），拒绝符号链接。旧 schemaVersion: 1 不自动升级成有效记录。
+
+任务完成通过 --task-scope、task-id 与 base 绑定实际差异及相关引用闭包；protected 例外来自真实 session-id 的已确认会话策略。输出 scope: task、paths、evidencePaths、contentDigest、sourceSnapshot 和 globalClosure: not_checked。sourceSnapshot 使用 task:<digest>，其摘要绑定任务、基准、非语义变化路径与相关源码内容，区别于全仓 source:<digest>；内容签名另绑定实际语义依据。受控删除的 after_revision 在任务验证中须匹配该 task 签名，原有 Git before_revision、Finding 授权及逐场景等价要求继续生效。
+
+局部 inventory 输出 task 范围、具体 paths 和局部摘要，不写入全项目 Discovery；其候选 observed_at 使用 task:<digest>，不能当作全仓快照或旧 HEAD 的内容。完整 inventory 与严格快照命令保持 repository 范围。
+
+Stop 成功收据使用 schemaVersion: 2，额外绑定 scope: task、taskId、contentDigest、evidencePaths、verifiedPaths。收据同时保留工作树指纹、插件/宿主版本和已有差异裁决身份；空指纹、旧版本或身份变化不能复用。它只证明确定性任务检查，不证明测试命令已执行、调查充分或全项目闭合。
+
+预检可选 `verificationScope: task|repository`，缺省 task，不改变其 `scope: task` 的任务身份。显式 repository 完成入口继续核对相同任务权限和保护差异，再运行完整严格校验；报告及收据的 scope 为 repository，额外提供 `repositorySnapshot: source:<digest>`，contentDigest 绑定任务签名、全仓源码及规范化正式语义材料内容。CLI 范围必须与预检一致，失败不得消费记录或发布成功收据。Hook 只接受实际匹配范围的报告，同一工作树重入沿用真实范围收据；任何内容、任务、待结算记录或身份变化仍使复用失效。`globalClosure: not_checked` 不因采用 repository 模式而自动变为全局行为闭合。
+
+repository 收据另存 `repositoryContentDigest` 与 `taskEvidenceDigests`，绑定正式目录/原件、实际引用内容及任务依据，已删除依据以 null 表示必须继续不存在。重入调用只读 `--repository-receipt-check --task-evidence-stdin`，从标准输入读取旧任务依据摘要并重新严格校验；它不创建成功收据或消费任务。临时 `repositoryObservations` 只将本次文件身份和目录集合交给 Hook 作校验到结算的稳定性核对，不持久保存。显式新任务身份、忽略内容变化或新待结算记录不能复用旧收据。预检/继续包与收据写入、消费在既有项目状态锁内比较和结算，耗时源码验证在锁外执行。
+
+## 本地产物与长期 Evidence
+
+`.echo-semantic/local/<task-id>/` 是被 `.git/info/exclude` 排除的非语义目录，不提交、分发、参与源码摘要或建模；已有七个运行态文件位置不变。任务日志、完整结果、临时脚本、补丁、源码副本和中间清单共享该目录，不要求分类子目录、每次运行 manifest 或自动清理。CI 产物沿用 CI Artifact。
+
+本地产物不能成为正式 `code_refs`、`source_refs` 或任务复用依据。长期 Evidence 只在支持 Finding 处置、重要行为与公共契约或维护限制时维护，优先更新已有对象。执行证据在正文记录验证对象、源码版本/内容身份、命令、必要环境、退出状态、结果和限制、原件位置。本地引用注明可用范围；外部原件注明具体运行与 Artifact。摘要不代替原件，原件不可用须保留限制，不能当作新验证通过。
+
+保留协议路径按 ASCII 大小写不敏感识别，`./` 和重复斜杠不能绕过 local 判定；当前工作树与历史 Git tree 的源码摘要均排除语义目录的大小写别名。当前工作树源码引用复用逐层拒绝符号链接的有界读取，单文件最多 8 MiB；超限须缩小依据或引用适当 Git revision，不能静默截断或复制进 local 后当作正式依据。
+
+正式回归测试与必要精简 fixture 可以提交，不按 `.json`、`.xml` 或 `.log` 后缀一刀切。源码通过 Git revision 与路径追溯；不复制已有源码、旧版本或候选补丁作为默认取证方式。确定性检查只阻断明确的运行态/local 路径；疑似原始产物提示由 Agent 结合项目规则处理。
+
+## 独立 Discovery 扫描报告
+
+`discovery/discovery.scan.<64位摘要>.md` 是长期候选报告。外层复用 `schema_version: 1` 的 Discovery 字段；`scan_report` 是 `schema_version: 2` 的 static/repository 报告，包含 `repository_root`、`source_snapshot`、`index_digest`、`paths`、`file_manifest`、`assets`、`candidates`、`excluded`、`unresolved`、`limitations`、`globalClosure: not_checked` 和 `behavior_model_closure: open`。
+
+文件身份清单的规范 JSON 摘要构成本次扫描的 `content_digest`，包含模式、已读取文件摘要及明确排除项；它不能替代正式 Baseline 的全仓 `source_digest`。Discovery id 绑定完整内嵌报告的规范 JSON 摘要。外层快照、候选和范围必须与内层一致；候选只允许 `needs_review`，资产与消费者引用不能越出扫描范围。内嵌资产只是线索，不可直接确立为正式 active 资产或 canonical owner。
+
+保存复用 repo-local 锁，锁内重验当前扫描。Git 私有临时文件写完后原子发布不可覆盖的报告，相同内容幂等保存，已有报告不同则拒绝覆盖。扫描和确认核对不消费 preflight、continuation、route 或收据。
+
+`--check-report` 在无基线项目独立核对报告结构。实际用户确认后，`--confirm-report` 与非空 `confirmation` 重算当前源码，不一致即拒绝。字符串不是机器认证的用户授权；通过后由既有语义维护流程更新已确认材料并运行完整验证，不自动修改 Baseline 或业务代码。

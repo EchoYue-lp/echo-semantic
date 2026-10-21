@@ -1,6 +1,6 @@
 # Echo Semantic 文档
 
-这里是 `echo-semantic 0.3.0` 的公共文档入口。第一次使用从“快速开始”进入；评估架构、接入 CI 或参与开发时按主题阅读。
+这里是 `echo-semantic 0.5.0` 的公共文档入口。第一次使用从“快速开始”进入；评估架构、接入 CI 或参与开发时按主题阅读。
 
 ## 使用文档
 
@@ -10,6 +10,7 @@
 | [核心概念](concepts.md)          | 使用者与 Reviewer               | 了解对象模型、风险视角、路由和状态权威             |
 | [宿主支持](host-support.md)      | Codex、Cursor、Claude Code 用户 | 理解三端能力、生命周期差异和验证等级               |
 | [CI 接入](ci-integration.md)     | 项目维护者                      | 把确定性语义校验加入 GitHub Actions                |
+| [用户定时扫描](scheduled-scanning.md) | 自动化配置者 | 自行选择周期与执行环境，调用扫描入口并验收结果 |
 | [命令参考](command-reference.md) | 维护者与自动化作者              | 查询安装器、探测、路由、预检、状态和验证命令       |
 | [故障排查](troubleshooting.md)   | 遇到安装或门禁问题的用户        | 根据错误定位缓存、Hook、快照、引用和路径分类问题   |
 | [常见问题](faq.md)               | 评估采用者                      | 判断插件边界、适用项目和与其它工程流程的关系       |

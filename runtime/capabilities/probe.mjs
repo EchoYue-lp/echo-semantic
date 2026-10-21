@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -33,7 +33,30 @@ function cursorInstalled() {
   ].some((candidate) => Boolean(candidate) && existsSync(candidate));
 }
 
-export function probeHost(host) {
+function commandIdentity(command) {
+  if (!command) return null;
+  try {
+    const path = realpathSync(command);
+    const stat = statSync(path);
+    if (!stat.isFile()) return null;
+    return JSON.stringify([
+      path,
+      stat.dev,
+      stat.ino,
+      stat.size,
+      stat.mode,
+      stat.mtimeMs,
+      stat.ctimeMs,
+    ]);
+  } catch {
+    return null;
+  }
+}
+
+export function probeHost(
+  host,
+  { previous = null, now = Date.now(), maxAgeMs = 300_000 } = {},
+) {
   const normalized = String(host || "").toLowerCase();
   if (!HOSTS.includes(normalized)) throw new Error(`未知宿主：${host}`);
   const command =
@@ -44,8 +67,21 @@ export function probeHost(host) {
         : commandPath("cursor");
   const detected =
     normalized === "cursor" ? cursorInstalled() : Boolean(command);
+  const identity = commandIdentity(command);
+  const age = now - Date.parse(previous?.versionObservedAt);
+  const cached = Boolean(
+    identity &&
+      previous?.host === normalized &&
+      previous.detected === true &&
+      previous.commandIdentity === identity &&
+      typeof previous.version === "string" &&
+      Number.isFinite(age) &&
+      age >= 0 &&
+      age <= Math.min(maxAgeMs, 300_000),
+  );
   let version = null;
-  if (command) {
+  if (cached) version = previous.version;
+  else if (command) {
     const result = spawnSync(command, ["--version"], {
       encoding: "utf8",
       timeout: 10_000,
@@ -62,6 +98,11 @@ export function probeHost(host) {
     host: normalized,
     detected,
     version,
+    commandIdentity: identity,
+    versionObservedAt: cached
+      ? previous.versionObservedAt
+      : new Date(now).toISOString(),
+    cached,
     install: capabilities.install,
     skills: capabilities.skills,
     agents: capabilities.agents,

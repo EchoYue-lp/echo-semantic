@@ -3,5 +3,8 @@
 .echo-semantic/preflight.json
 .echo-semantic/route.json
 .echo-semantic/continuation.json
+.echo-semantic/session-snapshot.json
+.echo-semantic/stop-dedupe.json
+.echo-semantic/local/
 **/__pycache__/
 **/*.pyc

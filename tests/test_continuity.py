@@ -335,6 +335,52 @@ class ContinuityTests(unittest.TestCase):
             text=True,
         )
 
+    def collect_document_errors(self) -> list[str]:
+        completed = subprocess.run(
+            ["uv", "run", str(VERIFIER), "--root", str(self.repository)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertIn(completed.returncode, (0, 1), completed.stderr)
+        return (completed.stdout + completed.stderr).splitlines()
+
+    def test_session_runtime_files_are_accepted_by_document_collector(self) -> None:
+        semantic_root = self.repository / ".echo-semantic"
+        baseline_errors = self.collect_document_errors()
+        for name in ("session-snapshot.json", "stop-dedupe.json"):
+            (semantic_root / name).write_text("{}\n", encoding="utf-8")
+        self.assertEqual(self.collect_document_errors(), baseline_errors)
+
+    def test_unknown_runtime_file_is_rejected_by_document_collector(self) -> None:
+        path = self.repository / ".echo-semantic/unknown-runtime.json"
+        path.write_text("{}\n", encoding="utf-8")
+        errors = self.collect_document_errors()
+        self.assertTrue(
+            any(
+                path.name in error and "合同未声明的根级条目" in error
+                for error in errors
+            ),
+            errors,
+        )
+
+    def test_session_runtime_symlinks_are_rejected_by_document_collector(self) -> None:
+        for name in ("session-snapshot.json", "stop-dedupe.json"):
+            with self.subTest(name=name):
+                path = self.repository / ".echo-semantic" / name
+                path.symlink_to("README.md")
+                try:
+                    errors = self.collect_document_errors()
+                    self.assertTrue(
+                        any(
+                            name in error and "不能使用符号链接" in error
+                            for error in errors
+                        ),
+                        errors,
+                    )
+                finally:
+                    path.unlink()
+
     def test_merge_result_missing_one_parent_obligation_is_blocked(self) -> None:
         target = self.commit_behavior(
             "target", "behavior.timeout", "运行时必须保留超时语义。"

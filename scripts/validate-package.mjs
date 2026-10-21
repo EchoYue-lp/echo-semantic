@@ -30,12 +30,23 @@ if (result.error) {
       [],
   );
   const required = [
+    "CHANGELOG.md",
     ".echo-semantic/baseline.md",
     ".echo-semantic/assets/.gitkeep",
     "hooks/hooks.json",
     "hooks/plugin-entry.mjs",
     "runtime/project-state.mjs",
+    "runtime/session-state.mjs",
+    "scripts/session-changes.mjs",
+    "skills/semantic-preflight/scripts/session-changes.mjs",
     "scripts/preflight_contract.py",
+    "scripts/scan_contract.py",
+    "scripts/record-scan.mjs",
+    "scripts/record-preflight.mjs",
+    "scripts/artifacts.mjs",
+    "scripts/artifact_contract.py",
+    "scripts/check-preflight.py",
+    "scripts/benchmark-preflight.mjs",
     "skills/semantic-contract/references/semantic-artifact-contract.md",
     "skills/semantic-preflight/SKILL.md",
     "skills/semantic-consolidate/SKILL.md",
@@ -51,6 +62,8 @@ if (result.error) {
     ".echo-semantic/preflight.json",
     ".echo-semantic/route.json",
     ".echo-semantic/continuation.json",
+    ".echo-semantic/session-snapshot.json",
+    ".echo-semantic/stop-dedupe.json",
   ];
 
   for (const path of required) {
@@ -60,6 +73,12 @@ if (result.error) {
     if (files.has(path)) fail(`不得包含项目运行态文件 ${path}`);
   }
   for (const path of files) {
+    if (
+      path.toLowerCase() === ".echo-semantic/local" ||
+      path.toLowerCase().startsWith(".echo-semantic/local/")
+    ) {
+      fail(`不得包含本地产物 ${path}`);
+    }
     if (path.includes("/__pycache__/") || path.endsWith(".pyc")) {
       fail(`不得包含 Python 缓存 ${path}`);
     }
