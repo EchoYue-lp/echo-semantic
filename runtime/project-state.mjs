@@ -328,12 +328,15 @@ function recoverStaleProjectLock(lock, staleMs) {
   }
 }
 
-export function withProjectStateLock(
-  root,
+export function withProjectStateLock(root, callback, options = {}) {
+  return withStateLock(projectStateLockPath(root), callback, options);
+}
+
+function withStateLock(
+  lock,
   callback,
   { timeoutMs = 2_000, staleMs = 30_000 } = {},
 ) {
-  const lock = projectStateLockPath(root);
   mkdirSync(dirname(lock), { recursive: true });
   const deadline = Date.now() + timeoutMs;
   const token = `${process.pid}:${randomUUID()}`;
@@ -564,4 +567,27 @@ export function updateProjectJson(root, name, updater, lockOptions = {}) {
     },
     lockOptions,
   );
+}
+
+// 非 Git 工作区只拥有会话路由；不能借此写入仓库授权或验证状态。
+export function updateWorkspaceSessionJson(root, updater) {
+  if (
+    resolve(root) !== realpathSync(root) ||
+    git(root, ["rev-parse", "--show-toplevel"])
+  )
+    throw new Error("工作区路由根必须是规范的非 Git 目录");
+  const directory = ensureProjectStateDirectory(root);
+  return withStateLock(join(directory, ".workspace-state.lock"), () => {
+    const name = "session-snapshot.json";
+    const target = projectStatePath(root, name);
+    const previous = readProjectJson(root, name);
+    if (existsSync(target) && previous === null)
+      throw new Error("工作区路由损坏，不能自动覆盖");
+    const value = updater(previous);
+    if (!value || value.scope !== "workspace" || value.repositoryRoot !== root)
+      throw new Error("工作区只能保存本目录的会话路由");
+    ensureProjectStateDirectory(root);
+    atomicWrite(target, projectJsonContent(value));
+    return value;
+  });
 }

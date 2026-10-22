@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.task-scoped-reuse
 kind: evidence
-observed_at: source:323d9d10e27ceb3a901d3b923bb58982aa6efcc4cbf919bfab17ad0abbd0ec18
+observed_at: 7536db0b896eef31873d0e4c998961db03516df3
 source_refs:
   - scripts/preflight_contract.py#reuse_check_contents
   - runtime/preflight-contract.mjs#checkPreflightRecord

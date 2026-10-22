@@ -8,8 +8,11 @@ risk: high
 primary_focus: state_authority
 focus: [trigger_input, contract_evidence]
 boundary: boundary.semantic-workflow
-observed_at: source:323d9d10e27ceb3a901d3b923bb58982aa6efcc4cbf919bfab17ad0abbd0ec18
+observed_at: source:f35ccedfafd943243f47d1f64ea2f7c78cd6d2f9ce860ee473f0aea9e8ae1909
 code_refs:
+  - hooks/entry.mjs#handleWorkspace
+  - runtime/project-state.mjs#updateWorkspaceSessionJson
+  - runtime/session-state.mjs#updateWorkspaceSession
   - skills/semantic-preflight/SKILL.md#已有差异处置
   - skills/semantic-preflight/SKILL.md#机器记录
   - scripts/session-changes.mjs
@@ -26,7 +29,7 @@ finding_refs: []
 
 # 生成前预检行为
 
-实际编辑仓库由以原生 cwd 解释的完整目标集合确定；父仓预检不授权独立子 Git 仓库。跨根必须沿同一会话读取目标仓可信观察、差异裁决和预检；缺失或冲突会话仍拒绝。多根补丁与符号链接路径整体拒绝，普通单仓行为保持。成功准入后只追加生命周期路由绑定，不回填旧快照或解除已有差异保护。
+实际编辑仓库由以原生 cwd 解释的完整目标集合确定；父仓预检不授权独立子 Git 仓库。跨根必须沿同一会话读取目标仓可信观察、差异裁决和预检；缺失或冲突会话仍拒绝。多根补丁与符号链接路径整体拒绝，普通单仓行为保持。成功准入后只追加生命周期路由绑定，不回填旧快照或解除已有差异保护。非 Git 父工作区由真实 SessionStart 建立路由，子仓首次 pre-edit 在无待结算任务时记录接入观察，再按原预检与差异处置流程重试；不要求另开子仓会话，不从其它宿主复制授权。安装前旧父会话未建立路由时，只允许真实 pre-edit 首次接入建立当下身份，首次请求必拒绝落盘；原观察、遗留路由或待结算状态存在时不重建。inspect unknown 提供这条恢复指引，refresh 仍不补快照。
 
 ## 重要承诺
 

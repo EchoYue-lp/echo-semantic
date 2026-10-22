@@ -10,7 +10,7 @@
 | Skill          | manifest                    | manifest                     | manifest / 插件目录          |
 | 专用 Agent     | 用户 TOML 投影              | 原生 `agents/`               | 原生插件 Agent               |
 | SessionStart   | 支持                        | 支持                         | 支持                         |
-| 编辑前路径检查 | 当前未稳定覆盖              | `preToolUse`                 | `PreToolUse`                 |
+| 编辑前路径检查 | `PreToolUse`，实际覆盖须验收              | `preToolUse`                 | `PreToolUse`                 |
 | PreCompact     | 降级支持，需真实会话验证    | 降级支持，需真实窗口验证     | 支持，需登录会话验证         |
 | Stop           | 支持                        | 降级为 `followup_message`    | 支持                         |
 | 安装方式       | CLI + 原生 Hook/Agent 投影  | 本地实目录镜像               | Marketplace CLI              |
@@ -65,7 +65,7 @@ codex plugin list --json
 codex plugin marketplace list --json
 ```
 
-Codex 当前没有稳定的编辑前 Hook，因此不会声称可以在每次写文件前阻断。写入范围由预检指导，Stop 和 CI 负责确定性收口。
+Codex 已在插件清单注册 PreToolUse，匹配 Edit、Write、Delete 和 apply_patch，并复用共享写前检查。注册、脚本夹具和安装可见都不能证明特定会话的全部写入工具已覆盖；真实事件、宿主版本、配置和信任状态须单独验收，Stop 与 CI 仍独立收口。
 
 ## Cursor
 
@@ -102,14 +102,14 @@ node bin/install.mjs install claude-code
 安装器通过 Claude Code Marketplace CLI 删除当前和旧 ID，再安装 `echo-semantic@echo-semantic`。Claude Code 与 Codex 共用
 插件内 `hooks/hooks.json`，入口根据 `CLAUDE_PLUGIN_ROOT` / `PLUGIN_ROOT` 选择宿主输出。安装后新建会话，并确保 CLI 已登录。
 
-Claude Code 使用 `SessionStart`、`PreToolUse`、`PreCompact` 和 `Stop`。编辑前匹配 `Edit|Write|Delete`，只对有效预检和批准删除范围执行阻断。
+Claude Code 使用 `SessionStart`、`PreToolUse`、`PreCompact` 和 `Stop`。编辑前注册匹配 `Edit|Write|Delete|apply_patch`，只对有效预检和批准删除范围执行阻断。
 
 ## 共享事件映射
 
 | 共享语义 | Codex          | Cursor             | Claude Code                            |
 | -------- | -------------- | ------------------ | -------------------------------------- |
 | 会话开始 | `SessionStart` | `sessionStart`     | `SessionStart`                         |
-| 编辑前   | 暂无稳定覆盖   | `preToolUse`       | `PreToolUse`，匹配 `Edit \| Write \| Delete` |
+| 编辑前   | `PreToolUse`（按真实事件验收）   | `preToolUse`       | `PreToolUse`，匹配 Edit/Write/Delete/apply_patch |
 | 压缩前   | `PreCompact`   | `preCompact`       | `PreCompact`                           |
 | 停止前   | `Stop`         | `stop`（followup） | `Stop`                                 |
 
@@ -146,3 +146,11 @@ npm run probe
 ## 任务范围合同与验收
 
 已有生命周期事件用于任务范围准入和 Stop 校验，未新增宿主事件。Node 准入复用 Python 完整预检合同，因此实际可用性还依赖该解释器；校验器不可用时拒绝写入。无基线任务也检查记录，旧字符串记录与旧完成收据需要重建。静态清单、模拟 Hook 和真实新会话/窗口重载分别验收。用户定时接入与验收见[说明](scheduled-scanning.md)，插件不替用户登记定时任务；未取得实际触发证据时不宣称通过。
+
+## 多仓库工作区验收范围
+
+共享 Hook 支持非 Git 共同父目录作为会话工作区，复用现有 SessionStart、pre-edit、PreCompact 和 Stop 事件与原生会话字段，不新增宿主协议。Cursor 的只读工具继续按现有工具名规则放行。
+
+真实 Git 夹具和 Hook 子进程只证明源码路径。Codex、Cursor、Claude Code 的安装版仍须分别核对版本、插件加载身份，并在正常新会话或 GUI 重载后观察真实事件；未取得这些证据时不宣称该宿主已验收。安装和发布不由源码实现自动触发。
+
+安装前旧父目录会话的首次接入不补发 SessionStart：仅当真实写前入口运行时，才能建立当下观察并拒绝首次落盘。若旧会话未加载新入口，先处理加载/信任问题；源代码、分发副本和缓存一致不能代替该会话的真实事件。见[旧会话排查](troubleshooting.md#没有可信会话起始快照或-unknown)。

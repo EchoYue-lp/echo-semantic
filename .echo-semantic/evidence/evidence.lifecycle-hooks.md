@@ -2,8 +2,13 @@
 schema_version: 1
 id: evidence.lifecycle-hooks
 kind: evidence
-observed_at: source:323d9d10e27ceb3a901d3b923bb58982aa6efcc4cbf919bfab17ad0abbd0ec18
+observed_at: source:f35ccedfafd943243f47d1f64ea2f7c78cd6d2f9ce860ee473f0aea9e8ae1909
 source_refs:
+  - hooks/entry.mjs#handleWorkspace
+  - hooks/entry.mjs#runBoundRepositories
+  - runtime/project-state.mjs#updateWorkspaceSessionJson
+  - runtime/session-state.mjs#loadWorkspaceSession
+  - tests/native-hook-binding.test.mjs#multiRepositoryFixture
   - hooks/entry.mjs#observationRecovery
   - tests/native-hook-binding.test.mjs#Stop无起始观察保留未归属任务并只读结束
   - tests/native-hook-binding.test.mjs#pending拒写反馈提供本仓inspect和实际提问接续
@@ -153,3 +158,23 @@ pending 拒写反馈给出实际仓库、原生会话及官方 inspect 参数和
 本机以 PATH 前置的 `codex` 返回失败复现相同两项失败；修复后同环境两项通过。夹具复用既有 Node 测试的宿主替身模式，在自身临时 Git 目录内提供 `codex` 命令，并只向 Hook 子进程传递显式 PATH。生产 `detected/version` 要求、真实 Git 历史读取、首次及正常重入成功、历史漂移或旧收据缺字段后拒绝的断言均保留。Node 的版本仅作夹具宿主身份，不是实际 Codex 版本或原生宿主验收。
 
 原件位于 `.echo-semantic/local/ci-history-hook-host-probe-01a1442d/` 的 `missing-host-red.log`、`missing-host-green.log` 与后续工程检查日志，仅当前工作区可用。完整工程、远端 CI 及安装验收按各自实际结果报告。
+
+## 通用多仓库工作区源码验证
+
+2026-10-22，基于 main@7536db0b896eef31873d0e4c998961db03516df3 的工作树实现。hooks/entry.mjs 复用实际路径解析、逐仓准入与 Stop，runtime/session-state.mjs 扩展会话路由，runtime/project-state.mjs 复用锁、原子替换及安全读写，为非 Git 父目录提供仅限会话路由的专用写入。tests/native-hook-binding.test.mjs 与 tests/project-state.test.mjs 覆盖一次父目录启动、首次接入、三仓结算、部分失败重试、已有差异保护、宿主隔离、子目录恢复、损坏路由及九仓准入。
+
+旧实现两项反例均失败，首轮修复六项定向回归全部通过。执行原件位于忽略目录 .echo-semantic/local/multi-repository-workspace/workspace-red.log 和 workspace-green.log，仅当前工作区可用。后续完整工程门禁和最终审查以本任务最终执行结果为准；这些进程夹具不证明安装版或 Codex、Cursor、Claude Code 新会话已验收，不自动安装或发布。
+
+最终源码实现经独立 reviewer 复审通过；四项故障反例均先取得失败证据再修复，其中无提交子仓失败接入不污染已有路由。完整 npm test 和 npm run verify 的退出码均为 0，Node 158/158、Python 149/149，格式、分发清单、校验器自测及严格快照均通过。原件为 .echo-semantic/local/multi-repository-workspace/npm-test-final-retry.log、npm-verify-final.log、review-red.log、review-green-final.log、headless-red.log 和 headless-green.log；首轮完整测试的 157/158 与安装冒烟空输入问题保存在 npm-test-final.log，修复后的安装冒烟 installer-green.log 通过。生产准入未为测试放宽。源码版本身份由本对象 observed_at 绑定；旧未变对象仅将原 source 观察固定到等价 main@7536db0 Git revision，Baseline 仅维护源码摘要，覆盖与闭合结论不变。未安装或发布，未完成采用方新会话与 GUI 重载验收。
+
+## 安装前旧父目录会话的首次接入缺口
+
+2026-10-22 现场只读核对：invoice-app 父会话在安装前创建，父目录没有任何工作区运行态，目标后端只有另一个会话的快照；本会话仅调用 inspect/refresh 后停止，未触发真实 pre-edit。unknown 不是原生写入门禁已执行的证据，refresh 拒绝补造观察是正确保护。修复 hooks/entry.mjs 的旧会话首次接入分支，复用 runtime/session-state.mjs 工作区记录并标明 pre-edit 来源，scripts/session-changes.mjs 与 skills/semantic-preflight/SKILL.md 同步未知状态的接入指引。首次真实请求必拒绝落盘；既有快照、过期/缺失路由及未结算任务不覆盖，业务仓只读未修改。反例与验证原件保存在 .echo-semantic/local/old-session-first-admission/，采用方原会话仍需实际触发写前 Hook 才能完成原生验收。
+
+本轮独立审查补充确定性并发反例：在无状态检查后、git status 观察时，由另一任务通过正式 CLI 写入预检。未修实现仍生成本会话快照；修复在子仓锁内重验原始状态，出现新预检即拒绝首次观察且不登记父观察集合，原预检字节保持不变。原件位于 old-session-first-admission/race-red.log 与 race-green.log。
+
+旧会话修复最终独立复审通过；组合回归 17/17、最新四项接入/并发保护 4/4，完整 npm test 与 npm run verify 退出码均为 0（Node 162/162、Python 149/149）。原件位于 .echo-semantic/local/old-session-first-admission/npm-test-final.log、npm-verify-final.log、final-four.log；未修改业务仓或手工写入其会话记录。源码身份维护沿用前述仅元数据方案，原父会话真实 pre-edit 事件仍需由原会话执行，不以隔离夹具或静态安装核对冒充原生验收。
+
+## 多仓库使用文档同步
+
+同步 README、CHANGELOG、快速开始、FAQ、故障排查、命令参考、宿主矩阵、多宿主适配、核心概念、发布验收及主架构生命周期图。按既有实现区分 SessionStart 与旧父会话真实 pre-edit 首次接入，首次请求只观察并拒写；其它会话快照不授权本会话，已有本会话状态或待结算任务不得覆盖。文档显式区分安装可见、文件一致、入口夹具与原生事件验收，不把恢复问题转为必须切换单仓根。此次只改文档与必要源码身份元数据，未改运行时或测试逻辑；原件定位 .echo-semantic/local/multi-repository-docs-sync/。

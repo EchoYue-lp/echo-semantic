@@ -239,12 +239,25 @@ test("Codex 重命名安装清理旧 Hook、Agent 和状态", () => {
     readFileSync(resolve(distribution, "hooks/hooks.json"), "utf8"),
   );
   const probe = resolve(home, "native-hook-events.jsonl");
+  const workspace = resolve(home, "workspace");
+  mkdirSync(workspace);
+  const session_id = "installed-entry-smoke";
   for (const event of ["SessionStart", "PreCompact", "PreToolUse", "Stop"]) {
     const installedCommand = nativeHooks.hooks[event][0].hooks[0].command;
     assert.match(installedCommand, /PLUGIN_ROOT/);
     const hookResult = spawnSync(installedCommand, {
-      cwd: home,
-      input: "{}",
+      cwd: workspace,
+      input: JSON.stringify({
+        cwd: workspace,
+        session_id,
+        source: "startup",
+        ...(event === "PreToolUse"
+          ? {
+              tool_name: "Write",
+              tool_input: { path: resolve(workspace, "no-git.txt") },
+            }
+          : {}),
+      }),
       encoding: "utf8",
       env: {
         ...process.env,
@@ -254,12 +267,17 @@ test("Codex 重命名安装清理旧 Hook、Agent 和状态", () => {
       },
       shell: true,
     });
-    assert.equal(hookResult.status, 0, hookResult.stderr);
+    if (event === "PreToolUse") {
+      assert.equal(hookResult.status, 2, hookResult.stderr);
+      const output = JSON.parse(hookResult.stdout);
+      assert.equal(output.decision, "block");
+      assert.match(output.reason, /Git 仓库/);
+    } else assert.equal(hookResult.status, 0, hookResult.stderr);
   }
   const claudeCommand = nativeHooks.hooks.SessionStart[0].hooks[0].command;
   const claudeResult = spawnSync(claudeCommand, {
-    cwd: home,
-    input: "{}",
+    cwd: workspace,
+    input: JSON.stringify({ cwd: workspace, session_id, source: "startup" }),
     encoding: "utf8",
     env: {
       ...process.env,

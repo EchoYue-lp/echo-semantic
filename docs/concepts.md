@@ -149,3 +149,32 @@ Audit 必须绑定“边界 × 风险视角 × revision”，并提出可被反�
 Discovery 的 scan_report 内嵌静态资产和待确认候选，与正式 Asset/Finding 分开。报告摘要绑定文件身份清单与实际排除项，不能直接当作 Baseline 的严格源码摘要。结构检查、当前源码核对、人的语义确认与全项目闭合是四个不同结论。
 
 用户配置的外部调度调用同一扫描入口。配置示例与验收步骤见[用户定时扫描](scheduled-scanning.md)，实际周期、目标和权限都不由插件写死。
+
+## 工作区与仓库的归属
+
+工作区是用户处理多个 Git 子项目的共同父目录，可以没有 `.git`。父目录 `.echo-semantic/session-snapshot.json` 只保存按工作区、宿主和原生会话隔离的路由，不能当作子仓快照或授权。Git 子仓库分别拥有预检、差异裁决、继续包和完成收据。非 Git 路由使用专用写入；Git 仓库内的运行态继续禁止被跟踪并设置本地忽略。
+
+首次接入只观察实际目标，不扫描全部子项目。观察记录真实发生时刻；没有 SessionStart 的旧父会话可从真实 pre-edit 接入，但不能把该时刻说成原会话起点。
+
+```mermaid
+flowchart TD
+  Task[同一父目录中的明确任务] --> Known{本会话是否已有可信路由和子仓观察}
+  Known -- 已有 --> Check[检查本仓差异处置和有效预检]
+  Known -- 尚未接入 --> Admission[真实写前 Hook 申请接入]
+  Admission --> State{是否存在遗留或待结算状态}
+  State -- 存在或原路由失效 --> Restore[保留原件并恢复同归属依据]
+  State -- 不存在 --> Observe[子仓锁内重验并提交当下观察]
+  Observe --> Reject[拒绝首次落盘并登记父路由]
+  Reject --> Inspect[重新 inspect 和必要差异裁决]
+  Inspect --> Preflight[以实际 Git 子仓记录预检]
+  Preflight --> Check
+  Check --> Write[重试并按本仓允许路径写入]
+  Write --> Lifecycle[按本会话参与集合逐仓 PreCompact 或 Stop]
+  Lifecycle --> Result{各仓结果}
+  Result -- 全部已验证 --> Receipt[保留各仓独立通过收据]
+  Result -- 任一失败 --> Pending[保留失败任务并明确反馈后重试]
+```
+
+`inspect` 为 unknown 时仍无写入授权；从未接入场景可申请上图的真实 Hook 观察，`refresh` 不能补造快照。路由损坏、丢失、过期或已有任务时不走首次接入重建。原方案和实施授权不重复确认，已有差异的必要归属裁决仍独立执行。具体操作见[命令参考](command-reference.md#多仓库工作区的预检与恢复)。
+
+路由不授予跨仓权限，单次补丁只属于一个 Git 根。数量不再固定限制八仓，统一字节上限和执行预算仍适用；超限、并发路由变化或仓库失败不能截断集合后宣称全部通过。只读结束不生成通过收据，安装登记不证明原生事件已触发。

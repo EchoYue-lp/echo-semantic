@@ -1,8 +1,11 @@
 import {
   readProjectJson,
   updateProjectJson,
+  updateWorkspaceSessionJson,
   PLUGIN_ID,
 } from "./project-state.mjs";
+import { createHash, randomUUID } from "node:crypto";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { observeWorktree } from "./route.mjs";
 
 export const SESSION_SNAPSHOT_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
@@ -103,8 +106,6 @@ export function bindSessionRepository(root, sessionId, binding) {
       const retained = bindings.filter(
         (item) => item.repositoryRoot !== binding.repositoryRoot,
       );
-      if (retained.length >= 8)
-        throw new Error("同一会话触及仓库过多，请拆分任务");
       return {
         ...(previous ?? {
           sessionId,
@@ -128,7 +129,6 @@ export function sessionRepositoryBindings(root, sessionId) {
   const bindings = record?.repositoryBindings ?? [];
   if (
     !Array.isArray(bindings) ||
-    bindings.length > 8 ||
     bindings.some(
       (item) =>
         !item ||
@@ -140,6 +140,106 @@ export function sessionRepositoryBindings(root, sessionId) {
   )
     throw new Error("会话仓库绑定损坏，不能结算其它仓库");
   return bindings;
+}
+
+function workspaceSessionKey(host, sessionId) {
+  if (!host || !sessionId) throw new Error("工作区缺少原生宿主或会话标识");
+  return createHash("sha256")
+    .update(JSON.stringify([host, sessionId]))
+    .digest("hex");
+}
+
+export function loadWorkspaceSession(root, host, sessionId) {
+  if (!sessionId) return null;
+  const value = readProjectJson(root, "session-snapshot.json");
+  if (value === null) return null;
+  if (value.scope !== "workspace") return null;
+  if (
+    value.schemaVersion !== 2 ||
+    value.pluginId !== PLUGIN_ID ||
+    value.repositoryRoot !== root ||
+    !Array.isArray(value.records)
+  )
+    throw new Error("工作区路由信封损坏");
+  const key = workspaceSessionKey(host, sessionId);
+  if (!value.records.some((item) => item?.sessionId === key)) return null;
+  const record = sessionRecords(value, root, SESSION_SNAPSHOT_LIFETIME_MS).find(
+    (item) => item.sessionId === key,
+  );
+  if (!record) throw new Error("工作区会话记录缺失或过期，须恢复真实会话观察");
+  if (
+    record.host !== host ||
+    record.nativeSessionId !== sessionId ||
+    typeof record.workspaceId !== "string" ||
+    (record.observationEvent !== undefined &&
+      !["session-start", "pre-edit"].includes(record.observationEvent)) ||
+    !record.routingOnly
+  )
+    throw new Error("工作区会话身份不一致");
+  for (const list of [
+    record.repositoryBindings,
+    record.repositoryObservations,
+  ]) {
+    if (!Array.isArray(list)) throw new Error("工作区仓库路由损坏");
+    const roots = new Set();
+    for (const item of list) {
+      const path = item?.repositoryRoot;
+      const child = typeof path === "string" ? relative(root, path) : "..";
+      if (
+        !child ||
+        child === ".." ||
+        child.startsWith(`..${sep}`) ||
+        isAbsolute(child) ||
+        resolve(path) !== path ||
+        roots.has(path)
+      )
+        throw new Error("工作区仓库路径不可信");
+      roots.add(path);
+      if (!/^[a-f0-9]{40,64}$/.test(item.headRevision ?? ""))
+        throw new Error("工作区仓库版本无效");
+      if (
+        list === record.repositoryBindings &&
+        (typeof item.taskId !== "string" || !item.taskId)
+      )
+        throw new Error("工作区任务绑定无效");
+    }
+  }
+  return record;
+}
+
+export function updateWorkspaceSession(root, host, sessionId, updater) {
+  const key = workspaceSessionKey(host, sessionId);
+  let updated;
+  updateWorkspaceSessionJson(root, (value) => {
+    if (value && value.scope !== "workspace")
+      throw new Error("工作区已有其它状态，不能覆盖");
+    // 不按年龄或数量静默淘汰待结算会话；字节上限由统一写入器执行。
+    const records = value?.records ?? [];
+    if (!Array.isArray(records)) throw new Error("工作区会话集合损坏");
+    const previous = records.find((item) => item.sessionId === key);
+    updated = updater(
+      previous ?? {
+        sessionId: key,
+        nativeSessionId: sessionId,
+        host,
+        workspaceId: randomUUID(),
+        observationEvent: "session-start",
+        routingOnly: true,
+        recordedAt: new Date().toISOString(),
+        repositoryBindings: [],
+        repositoryObservations: [],
+      },
+    );
+    return {
+      schemaVersion: 2,
+      pluginId: PLUGIN_ID,
+      repositoryRoot: root,
+      scope: "workspace",
+      records: [...records.filter((item) => item.sessionId !== key), updated],
+      updatedAt: new Date().toISOString(),
+    };
+  });
+  return updated;
 }
 
 export function snapshotDisposition(root, snapshot, route) {

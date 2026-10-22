@@ -7,7 +7,7 @@ expectation: human_confirmed
 risk: high
 primary_focus: contract_evidence
 focus: [state_authority, time_lifecycle, failure_concurrency]
-observed_at: source:323d9d10e27ceb3a901d3b923bb58982aa6efcc4cbf919bfab17ad0abbd0ec18
+observed_at: 7536db0b896eef31873d0e4c998961db03516df3
 behavior_refs: [behavior.semantic-continuity]
 code_refs:
   - skills/semantic-contract/scripts/verify_semantic.py#compare_continuity

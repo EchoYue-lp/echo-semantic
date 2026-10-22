@@ -182,7 +182,7 @@ repair Finding 需要在对象中声明 `delete_paths`、`replacement_refs` 和 
 
 ### 已有差异处置
 
-首次发现已有差异时先询问用户，未答复只读、不修改或交付。以下命令只盘点或记录明确答复，不进行提交、清理，也不生成验证成功收据。宿主会话标识来自 SessionStart，不按任务 id 猜测。
+首次发现已有差异时先询问用户，未答复只读、不修改或交付。以下命令只盘点或记录明确答复，不进行提交、清理，也不生成验证成功收据。宿主会话标识来自真实宿主事件，不按任务 id 猜测；多仓库首次接入观察也可来自 pre-edit。
 
 `inspect` 的 `presentation` 提供用户可见盘点所需的状态分类和嵌套仓库摘要。助手必须展示具体差异、判断与本任务的重叠关系，并给出一个带事实理由的推荐；不能只转述存在差异或把推荐当作用户答复。
 
@@ -315,10 +315,12 @@ npm run verify
 <project-root>/.echo-semantic/continuation.json
 <project-root>/.echo-semantic/status.md
 <project-root>/.echo-semantic/status.json
+<project-root>/.echo-semantic/session-snapshot.json
+<project-root>/.echo-semantic/stop-dedupe.json
 ~/.echo-semantic/install-state.json
 ```
 
-`.echo-semantic/` 中的长期语义 Markdown 正常提交；上述 5 个运行态文件由插件写入 `.git/info/exclude`，不进入提交。
+`.echo-semantic/` 中的长期语义 Markdown 正常提交；上述 7 个仓库运行态文件由插件写入 `.git/info/exclude`，不进入提交。非 Git 共同父目录只保存工作区会话路由，子仓库各自保存任务和验证状态。路由计算结果可以重新计算，但会话原始观察、已有归属和未结算任务不能靠删除文件或 `refresh` 重建；恢复流程见[多仓库工作区的预检与恢复](#多仓库工作区的预检与恢复)。
 
 ## 有依据的复用记录与局部完成验证
 
@@ -360,3 +362,27 @@ uv run skills/semantic-discover/scripts/inventory.py \
 
 
 强源码/测试consumer迁移使用同一resolution中严格的current_reference_replacements；碰撞组保聚合和每variant义务，用source_dependency_variant_replacements逐原ref绑定真实结果consumer。两者不是忽略错误选项，结果树/role/锚/SHA/mode及原完整Eq/ADR必须全部通过，未处置与结果歧义继续非零。报告补充source_dependency_collisions、resolved_source_dependency_collisions与resolved_current_reference_replacements；单variant旧ID/FP不改。
+
+## 多仓库工作区的预检与恢复
+
+所有 `--root` 使用实际 Git 子仓库根；共同父目录只负责会话路由，不作为 preflight / verifier 的仓库根。原生会话标识来自宿主，不能按任务名猜测；子仓的首次观察可以来自真实 pre-edit，无需伪造子仓 SessionStart。
+
+| 当前状态 | 下一步 | 不表示什么 |
+| --- | --- | --- |
+| 新父目录会话 | SessionStart 建路由，实际编辑目标触发子仓首次接入 | 父路由不授权子仓 |
+| 旧父目录会话从未接入，inspect 为 unknown | 重新读取更新后的 Skill，申请真实写前接入；首次请求必拒写 | 不是写入放行或历史快照 |
+| 只有其它会话的快照，当前会话 unknown 且没有待结算任务 | 不借用旧快照，由本会话真实写前 Hook 首次接入 | 其它会话观察不授予本会话权限 |
+| 首次接入已建立观察 | 重新 inspect，完成必要差异裁决和本仓预检，再重试 | 观察和裁决都不是完成验证 |
+| 路由损坏、丢失、过期，或子仓已有本会话原观察/待结算状态 | 保留原状态并恢复相同归属的会话与任务依据 | 不能按首次接入重建 |
+| 实际宿主没有运行更新后的 Hook | 核对加载、版本、配置与信任，必要时重载或新建会话验收 | 安装登记不证明事件已运行 |
+
+接入申请使用宿主正常写入工具和原本拟修改的目标，不通过手动调用 Hook、shell 写入或伪造 SessionStart 绕过。首次请求被拒绝并产生观察之后，执行既有命令：
+
+```bash
+node /path/to/echo-semantic/scripts/session-changes.mjs inspect \
+  --root /absolute/workspace/module-a --session-id <原生会话标识>
+```
+
+已有差异按[已有差异处置](#已有差异处置)记录用户明确答复；无已有差异不新增确认。然后按[生成前预检](#生成前预检)以该子仓记录任务、允许路径、复用依据和验证要求，再重试原修改。既有方案和实施授权不因此需要重新确认，必要的差异归属裁决仍须遵守。
+
+`refresh` 只刷新已有首次盘点及待裁决观察，不能为 unknown 会话创建原始快照。CLI 没有独立的 `admit` 命令；接入由真实写前 Hook 完成。一次补丁只编辑一个 Git 根，后续调用可以处理其它仓库。Stop / PreCompact 只处理本会话实际参与的仓库，部分失败保留任务供重试；只读结束不生成通过收据。

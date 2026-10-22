@@ -49,6 +49,8 @@ import {
   STOP_DEDUPE_LIFETIME_MS,
   bindSessionRepository,
   sessionRepositoryBindings,
+  loadWorkspaceSession,
+  updateWorkspaceSession,
 } from "../runtime/session-state.mjs";
 
 const pluginRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -60,6 +62,12 @@ const verifier = resolve(
   "skills/semantic-contract/scripts/verify_semantic.py",
 );
 const pluginId = "echo-semantic";
+let workspaceDeadline = null;
+function verificationTimeout() {
+  return workspaceDeadline === null
+    ? 110_000
+    : Math.max(1, Math.min(110_000, workspaceDeadline - Date.now()));
+}
 const hookEvidenceLifetimeMs = 24 * 60 * 60 * 1000;
 const sessionSnapshotLifetimeMs = SESSION_SNAPSHOT_LIFETIME_MS;
 const stopDedupeLifetimeMs = STOP_DEDUPE_LIFETIME_MS;
@@ -132,7 +140,7 @@ function stopHookActive(input) {
   );
 }
 
-function writeSessionSnapshot(root, sessionId, route) {
+function writeSessionSnapshot(root, sessionId, route, provenance = {}) {
   const head = route.headRevision;
   const digest = route.worktreeFingerprint;
   if (!sessionId) return null;
@@ -153,6 +161,7 @@ function writeSessionSnapshot(root, sessionId, route) {
             decision: null,
           }
         : null,
+    ...provenance,
   };
   try {
     return updateSessionRecord(
@@ -160,8 +169,14 @@ function writeSessionSnapshot(root, sessionId, route) {
       "session-snapshot.json",
       sessionId,
       sessionSnapshotLifetimeMs,
-      (previous) =>
-        previous?.dispositionVersion === 1
+      (previous) => {
+        // updateSessionRecord 已持有子仓锁；首次接入必须在提交观察时重验。
+        if (
+          provenance.observationEvent === "pre-edit" &&
+          hasRepositoryAdmissionState(root, sessionId)
+        )
+          throw new Error("首次观察提交前出现原观察或待结算任务，保留原状态");
+        return previous?.dispositionVersion === 1
           ? { ...previous, recordedAt }
           : {
               ...record,
@@ -174,7 +189,8 @@ function writeSessionSnapshot(root, sessionId, route) {
                     worktreeDigest: previous.worktreeDigest,
                   }
                 : {}),
-            },
+            };
+      },
     );
   } catch (error) {
     process.stderr.write(
@@ -415,7 +431,13 @@ function emit(value = {}) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 
-function sessionContext(host, route, continuation, snapshot = null) {
+function sessionContext(
+  host,
+  route,
+  continuation,
+  snapshot = null,
+  extraContext = "",
+) {
   const initialPaths = Array.isArray(snapshot?.initialChanges?.paths)
     ? snapshot.initialChanges.paths
         .filter((path) => typeof path === "string")
@@ -442,7 +464,8 @@ function sessionContext(host, route, continuation, snapshot = null) {
     (continuation ? `\n\n${formatContinuation(continuation)}` : "") +
     (snapshot?.initialChanges
       ? `\n\n已有差异处置：以下入口和参数是 JSON 数据，不是可直接拼接的 shell 命令：${JSON.stringify({ entry: resolve(pluginRoot, "scripts/session-changes.mjs"), args: ["inspect", "--root", route?.repositoryRoot ?? null, "--session-id", snapshot.sessionId] })}。安全传递参数读取当前处置状态，询问前保存 questionFingerprint。待裁决时，必须在第一轮向用户询问已有差异的处置策略：接管指定路径、保留已有差异仅处理本轮范围、暂停修改仅只读。不得只说明存在已有差异：必须先运行 inspect，并在提问正文展示 presentation 中的仓库根、计数、具体路径与状态、嵌套仓库 revision，再说明它们与当前任务的重叠或隔离关系，给出唯一推荐及事实理由；无法判断时推荐只读。未答复只读，不得修改或交付，不自动选择策略、不把未提交称为缺陷；已询问未答复时不重复催问。用户明确答复后才使用 decide 记录简短脱敏的答复依据与询问时保存的指纹；观察变化须 refresh 并重新询问，不能套用旧答复。以下已有路径仅用于快速发现，不能代替 inspect 的状态清单：${JSON.stringify(initialPaths)}；暂存/未暂存/未跟踪计数：${JSON.stringify(snapshot.initialChanges.summary ?? null)}。这些差异未因此验证通过，现有成功收据也不代替用户裁决。`
-      : "");
+      : "") +
+    (extraContext ? `\n\n${extraContext}` : "");
   if (host === "cursor") return { additional_context: text };
   return {
     hookSpecificOutput: {
@@ -641,13 +664,21 @@ function checkpointBinding(binding, snapshot) {
   return { ...binding, headRevision: currentHead };
 }
 
-function runBoundRepositories(workspaceRoot, host, event, input) {
+function runBoundRepositories(
+  workspaceRoot,
+  host,
+  event,
+  input,
+  workspace = null,
+) {
   const sessionId = sessionIdFromInput(input);
   let bindings;
   try {
     if (conflictingSessionIds(input))
       throw new Error("会话标识冲突，不能结算任务状态");
-    bindings = sessionRepositoryBindings(workspaceRoot, sessionId);
+    bindings = workspace
+      ? workspace.repositoryBindings
+      : sessionRepositoryBindings(workspaceRoot, sessionId);
     const continued = [];
     for (const binding of bindings) {
       const snapshot = loadSessionSnapshot(binding.repositoryRoot, sessionId);
@@ -655,6 +686,10 @@ function runBoundRepositories(workspaceRoot, host, event, input) {
         repositoryRoot(binding.repositoryRoot) !== binding.repositoryRoot ||
         !snapshot ||
         snapshot.dispositionVersion !== 1 ||
+        (workspace &&
+          (snapshot.workspaceHost !== host ||
+            snapshot.workspaceRoot !== workspaceRoot ||
+            snapshot.workspaceId !== workspace.workspaceId)) ||
         ((input.task_id ?? input.taskId) !== undefined &&
           (input.task_id ?? input.taskId) !== binding.taskId)
       )
@@ -663,15 +698,25 @@ function runBoundRepositories(workspaceRoot, host, event, input) {
     }
     // 全部根先校验，不能因第二个根失败而提前改写第一个根的绑定。
     for (let index = 0; index < continued.length; index += 1) {
-      if (continued[index].headRevision !== bindings[index].headRevision)
-        bindSessionRepository(workspaceRoot, sessionId, continued[index]);
+      if (continued[index].headRevision !== bindings[index].headRevision) {
+        if (workspace)
+          updateWorkspaceSession(workspaceRoot, host, sessionId, (record) => ({
+            ...record,
+            repositoryBindings: record.repositoryBindings.map((item) =>
+              item.repositoryRoot === continued[index].repositoryRoot
+                ? continued[index]
+                : item,
+            ),
+          }));
+        else bindSessionRepository(workspaceRoot, sessionId, continued[index]);
+      }
     }
     bindings = continued;
   } catch (error) {
-    deny(error.message, workspaceRoot, host, event);
+    deny(error.message, workspace ? null : workspaceRoot, host, event);
     return;
   }
-  if (!bindings.length) {
+  if (!bindings.length && !workspace) {
     const state = event === "pre-compact" ? validState(workspaceRoot) : null;
     if (state && (input.task_id ?? input.taskId) !== state.taskId) {
       deny(
@@ -709,8 +754,15 @@ function runBoundRepositories(workspaceRoot, host, event, input) {
     root: binding.repositoryRoot,
     taskId: binding.taskId,
   }));
+  if (workspace) {
+    for (const observation of workspace.repositoryObservations) {
+      if (!roots.some((target) => target.root === observation.repositoryRoot))
+        roots.push({ root: observation.repositoryRoot, observationOnly: true });
+    }
+  }
   // 起始观察不证明父预检的任务归属；父任务也要本会话成功准入的绑定。
   if (
+    !workspace &&
     !roots.some((target) => target.root === workspaceRoot) &&
     loadSessionSnapshot(workspaceRoot, sessionId) &&
     !["preflight.json", "continuation.json"].some((name) =>
@@ -721,16 +773,80 @@ function runBoundRepositories(workspaceRoot, host, event, input) {
   collectedOutputs = [];
   try {
     for (const target of roots) {
+      if (workspaceDeadline !== null && Date.now() >= workspaceDeadline) {
+        deny(
+          `工作区生命周期执行预算耗尽，尚未验证：${target.root}`,
+          null,
+          host,
+          event,
+        );
+        break;
+      }
+      if (workspace) {
+        const snapshot = loadSessionSnapshot(target.root, sessionId);
+        if (
+          repositoryRoot(target.root) !== target.root ||
+          !snapshot ||
+          snapshot.workspaceHost !== host ||
+          snapshot.workspaceRoot !== workspaceRoot ||
+          snapshot.workspaceId !== workspace.workspaceId
+        ) {
+          deny(`仓库观察已失效：${target.root}`, null, host, event);
+          continue;
+        }
+        if (
+          target.observationOnly &&
+          ["preflight.json", "continuation.json"].some((name) =>
+            existsSync(projectStatePath(target.root, name)),
+          )
+        ) {
+          deny(
+            `仓库尚未完成编辑准入，保留未归属任务：${target.root}`,
+            null,
+            host,
+            event,
+          );
+          continue;
+        }
+      }
       const scopedInput = target.taskId
         ? { ...input, task_id: target.taskId }
         : input;
+      const outputStart = collectedOutputs.length;
       if (event === "stop") stop(target.root, scopedInput, host);
       else checkpoint(target.root, host, scopedInput);
+      if (workspace)
+        for (const output of collectedOutputs.slice(outputStart)) {
+          if (output.decision === "block")
+            output.reason = `${target.root}：${output.reason}`;
+          if (output.followup_message)
+            output.followup_message = `${target.root}：${output.followup_message}`;
+          if (output.permission === "deny") {
+            output.user_message = `${target.root}：${output.user_message}`;
+            output.agent_message = `${target.root}：${output.agent_message}`;
+          }
+        }
+    }
+    if (workspace) {
+      const current = loadWorkspaceSession(workspaceRoot, host, sessionId);
+      if (
+        JSON.stringify(current?.repositoryBindings) !==
+          JSON.stringify(bindings) ||
+        JSON.stringify(current?.repositoryObservations) !==
+          JSON.stringify(workspace.repositoryObservations)
+      )
+        deny(
+          "验证期间工作区路由变化，新增仓库仍未验证，请重试",
+          null,
+          host,
+          event,
+        );
     }
     const outputs = collectedOutputs;
     collectedOutputs = null;
     emit(
       outputs.find((output) => output.decision === "block") ??
+        outputs.find((output) => output.permission === "deny") ??
         outputs.find((output) => output.followup_message) ??
         {},
     );
@@ -929,7 +1045,7 @@ function repeatedVerification(
       ],
       {
         encoding: "utf8",
-        timeout: 110_000,
+        timeout: verificationTimeout(),
         env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
         input: JSON.stringify(references),
       },
@@ -965,7 +1081,7 @@ function repeatedVerification(
     ],
     {
       encoding: "utf8",
-      timeout: 110_000,
+      timeout: verificationTimeout(),
       env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
       input: JSON.stringify(receipt.taskEvidenceDigests ?? null),
     },
@@ -1114,6 +1230,7 @@ function checkEditScope(
   host,
   workspaceRoot = root,
   edits = editedTargets(input),
+  workspace = null,
 ) {
   let route;
   try {
@@ -1234,11 +1351,22 @@ function checkEditScope(
   }
   if (workspaceRoot && sessionId) {
     try {
-      bindSessionRepository(workspaceRoot, sessionId, {
+      const binding = {
         repositoryRoot: root,
         headRevision: route.headRevision,
         taskId: state.taskId,
-      });
+      };
+      if (workspace)
+        updateWorkspaceSession(workspaceRoot, host, sessionId, (record) => ({
+          ...record,
+          repositoryBindings: [
+            ...record.repositoryBindings.filter(
+              (item) => item.repositoryRoot !== root,
+            ),
+            binding,
+          ],
+        }));
+      else bindSessionRepository(workspaceRoot, sessionId, binding);
     } catch (error) {
       deny(`无法绑定实际编辑仓库：${error.message}`, root, host, "pre-edit");
       return;
@@ -1522,7 +1650,7 @@ function stop(root, input, host) {
     ],
     {
       encoding: "utf8",
-      timeout: 110_000,
+      timeout: verificationTimeout(),
       env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
     },
   );
@@ -1594,7 +1722,8 @@ function checkpoint(root, host, input) {
         observedEvent: "pre-compact",
         taskId: taskIdFromInput(input),
       });
-      checkpointFromPreflight(root, state, route);
+      if (!checkpointFromPreflight(root, state, route))
+        throw new Error("当前预检无法生成完整继续包");
       writeVisibleStatus(root, {
         state: "ready",
         event: "pre-compact",
@@ -1604,15 +1733,8 @@ function checkpoint(root, host, input) {
         message: "任务继续包已保存",
       });
     } catch (error) {
-      process.stderr.write(
-        `[${pluginId}] 无法保存任务继续包：${error.message}\n`,
-      );
-      writeVisibleStatus(root, {
-        state: "blocked",
-        event: "pre-compact",
-        host,
-        message: `无法保存任务继续包：${error.message}`,
-      });
+      deny(`无法保存任务继续包：${error.message}`, root, host, "pre-compact");
+      return;
     }
   } else {
     writeVisibleStatus(root, {
@@ -1626,10 +1748,251 @@ function checkpoint(root, host, input) {
   emit();
 }
 
+function hasRepositoryAdmissionState(root, sessionId) {
+  const present = (name) => {
+    try {
+      lstatSync(projectStatePath(root, name));
+      return true;
+    } catch (error) {
+      if (error.code === "ENOENT") return false;
+      throw error;
+    }
+  };
+  if (["preflight.json", "continuation.json"].some(present)) return true;
+  const value = readProjectJson(root, "session-snapshot.json");
+  if (value === null) return present("session-snapshot.json");
+  if (
+    value.pluginId !== pluginId ||
+    value.repositoryRoot !== root ||
+    ![1, 2].includes(value.schemaVersion) ||
+    value.scope === "workspace"
+  )
+    return true;
+  const records = value.schemaVersion === 2 ? value.records : [value];
+  if (!Array.isArray(records)) return true;
+  return records.some(
+    (record) =>
+      record?.sessionId === sessionId || record?.nativeSessionId === sessionId,
+  );
+}
+
+function handleWorkspace(host, event, input) {
+  const cwd = realpathSync(resolve(input.cwd || process.cwd()));
+  const sessionId = sessionIdFromInput(input);
+  const nativeGitRoot = repositoryRoot(cwd);
+  let workspaceRoot = null;
+  let workspace = null;
+  let orphanWorkspace = null;
+  try {
+    if (conflictingSessionIds(input)) throw new Error("原生会话标识冲突");
+    // cwd 可落在子仓；只沿父链查找本会话的工作区，不使用全局注册表。
+    for (let directory = cwd; ; directory = dirname(directory)) {
+      const state = projectStatePath(directory, "session-snapshot.json");
+      const runtime = dirname(state);
+      // 安装器自己的全局目录不是采用方工作区；当前 cwd 的残留目录仍须恢复。
+      if (
+        existsSync(runtime) &&
+        !existsSync(state) &&
+        (directory === cwd ||
+          !existsSync(join(runtime, "install-state.json"))) &&
+        !repositoryRoot(directory)
+      )
+        orphanWorkspace ??= directory;
+      if (
+        existsSync(state) &&
+        readProjectJson(directory, "session-snapshot.json") === null &&
+        !repositoryRoot(directory)
+      )
+        throw new Error("工作区路由损坏，须恢复真实会话观察");
+      const record = loadWorkspaceSession(directory, host, sessionId);
+      if (record) {
+        workspaceRoot = directory;
+        workspace = record;
+        break;
+      }
+      if (dirname(directory) === directory) break;
+    }
+    if (!workspace) {
+      if (event === "session-start" && !nativeGitRoot) {
+        if (!sessionId) throw new Error("非 Git 工作区缺少原生会话标识");
+        const source = input.source || input.hook_event_source;
+        if (
+          !(
+            ["startup", "clear", "fork"].includes(source) ||
+            (host === "cursor" && source === undefined)
+          )
+        )
+          throw new Error("恢复事件缺少原工作区路由，不能创建空工作区");
+        updateWorkspaceSession(cwd, host, sessionId, (record) => record);
+        loadWorkspaceSession(cwd, host, sessionId);
+        emit(
+          sessionContext(
+            host,
+            null,
+            null,
+            null,
+            "已启用 Echo Semantic 多仓库工作区；父目录无需 Git。按实际目标接入子仓库，首次接入先建立观察，再完成本仓预检及已有差异处置。未接入仓库不扫描、不代为验证。",
+          ),
+        );
+        return true;
+      }
+      if (nativeGitRoot) {
+        if (loadSessionSnapshot(nativeGitRoot, sessionId)?.workspaceRoot)
+          throw new Error("原工作区路由缺失，不能退回单仓结算或重新准入");
+        return false;
+      }
+      if (event === "pre-edit") {
+        if (host === "cursor" && !isCursorEditTool(input)) {
+          allow(host);
+          return true;
+        }
+        if (!sessionId) throw new Error("宿主工作根缺少可信原生会话标识");
+        if (orphanWorkspace)
+          throw new Error(
+            `工作区已有残留状态但路由缺失，不能重新接入：${orphanWorkspace}`,
+          );
+        const targets = actualEditTargets(input);
+        const roots = [...new Set(targets.map((target) => target.root))];
+        if (roots.length !== 1)
+          throw new Error("首次接入须识别唯一 Git 子仓库");
+        const root = roots[0];
+        const child = relative(cwd, root);
+        if (
+          !child ||
+          child === ".." ||
+          child.startsWith(`..${sep}`) ||
+          isAbsolute(child)
+        )
+          throw new Error("首次接入目标不属于当前父工作目录");
+        if (hasRepositoryAdmissionState(root, sessionId))
+          throw new Error(
+            `宿主工作根缺少原路由，目标仓已有观察或待结算状态，不能重建工作区：${root}`,
+          );
+        if (!/^[a-f0-9]{40,64}$/.test(git(root, ["rev-parse", "HEAD"]) ?? ""))
+          throw new Error("首次接入目标缺少可信 HEAD");
+        workspaceRoot = cwd;
+        updateWorkspaceSession(cwd, host, sessionId, (record) => ({
+          ...record,
+          observationEvent: "pre-edit",
+        }));
+        workspace = loadWorkspaceSession(cwd, host, sessionId);
+      } else {
+        process.stderr.write(
+          `[${pluginId}] 未找到可信工作区会话，本轮未执行仓库完成验证。\n`,
+        );
+        emit();
+        return true;
+      }
+    }
+    if (repositoryRoot(workspaceRoot))
+      throw new Error("工作区根身份已变化，须恢复真实会话观察");
+    if (event === "session-start") {
+      emit(
+        sessionContext(
+          host,
+          null,
+          null,
+          null,
+          "已恢复多仓库工作区，保留各子仓库原观察、差异裁决和待结算任务。",
+        ),
+      );
+      return true;
+    }
+    if (event === "pre-edit") {
+      if (host === "cursor" && !isCursorEditTool(input)) {
+        allow(host);
+        return true;
+      }
+      const edits = actualEditTargets(input);
+      const roots = [...new Set(edits.map((edit) => edit.root))];
+      if (roots.length !== 1)
+        throw new Error("同一次写入须有可识别的目标且只能属于一个 Git 仓库");
+      const root = roots[0];
+      const path = relative(workspaceRoot, root);
+      if (
+        !path ||
+        path === ".." ||
+        path.startsWith(`..${sep}`) ||
+        isAbsolute(path)
+      )
+        throw new Error("编辑目标不属于本工作区的 Git 子仓库");
+      let snapshot = loadSessionSnapshot(root, sessionId);
+      let firstObservation = false;
+      const observed = workspace.repositoryObservations.some(
+        (item) => item.repositoryRoot === root,
+      );
+      if (!snapshot) {
+        if (observed || hasRepositoryAdmissionState(root, sessionId))
+          throw new Error(`目标仓已有待结算状态或观察缺失，不能重录：${root}`);
+        const route = computeRoute(root, host, "repository-admission", {
+          observedEvent: "pre-edit",
+        });
+        if (
+          !/^[a-f0-9]{40,64}$/.test(route.headRevision ?? "") ||
+          !/^[a-f0-9]{64}$/.test(route.worktreeFingerprint ?? "")
+        )
+          throw new Error(
+            `目标仓缺少可信 HEAD 或完整工作树观察，未接入：${root}`,
+          );
+        snapshot = writeSessionSnapshot(root, sessionId, route, {
+          observationEvent: "pre-edit",
+          workspaceHost: host,
+          workspaceRoot,
+          workspaceId: workspace.workspaceId,
+        });
+        if (!snapshot)
+          throw new Error(`无法安全建立首次观察，未登记子仓：${root}`);
+        updateWorkspaceSession(workspaceRoot, host, sessionId, (record) => ({
+          ...record,
+          repositoryObservations: [
+            ...record.repositoryObservations.filter(
+              (item) => item.repositoryRoot !== root,
+            ),
+            {
+              repositoryRoot: root,
+              headRevision: route.headRevision,
+            },
+          ],
+        }));
+        firstObservation = true;
+      }
+      if (
+        !snapshot ||
+        snapshot.workspaceHost !== host ||
+        snapshot.workspaceRoot !== workspaceRoot ||
+        snapshot.workspaceId !== workspace.workspaceId
+      )
+        throw new Error(`目标仓观察不属于当前工作区和宿主：${root}`);
+      if (firstObservation) {
+        deny(
+          "已由真实写前 Hook 建立首次接入观察，本次请求不授权写入；先 inspect 核对本仓已有差异并完成必要裁决和 semantic-preflight，再重试。",
+          root,
+          host,
+          event,
+        );
+        return true;
+      }
+      checkEditScope(root, input, host, workspaceRoot, edits, workspace);
+    } else if (["stop", "pre-compact"].includes(event)) {
+      workspaceDeadline = Date.now() + (event === "stop" ? 100_000 : 8_000);
+      try {
+        runBoundRepositories(workspaceRoot, host, event, input, workspace);
+      } finally {
+        workspaceDeadline = null;
+      }
+    } else emit();
+  } catch (error) {
+    // 父工作区无 Git，不向其中写仓库 status 或成功收据。
+    deny(`多仓库工作区：${error.message}`, null, host, event);
+  }
+  return true;
+}
+
 export function main() {
   const [host, event] = process.argv.slice(2);
   const input = readInput();
   probe(host ?? "unknown", event ?? "unknown", input);
+  if (handleWorkspace(host, event, input)) return;
   const workspaceRoot = repositoryRoot(input.cwd || process.cwd());
   let root = workspaceRoot;
   let edits;

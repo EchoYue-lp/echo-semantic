@@ -4,7 +4,7 @@ id: map.semantic-continuity
 kind: capability_map
 title: 多前置版本语义连续性门禁
 risk: high
-observed_at: source:323d9d10e27ceb3a901d3b923bb58982aa6efcc4cbf919bfab17ad0abbd0ec18
+observed_at: 7536db0b896eef31873d0e4c998961db03516df3
 boundary_refs: [boundary.semantic-continuity]
 behavior_refs: [behavior.semantic-continuity]
 rule_refs: [rule.semantic-obligation-preservation]

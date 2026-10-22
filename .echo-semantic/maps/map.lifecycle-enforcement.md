@@ -4,7 +4,7 @@ id: map.lifecycle-enforcement
 kind: capability_map
 title: 生命周期 Hook 与确定性门禁
 risk: high
-observed_at: source:323d9d10e27ceb3a901d3b923bb58982aa6efcc4cbf919bfab17ad0abbd0ec18
+observed_at: source:f35ccedfafd943243f47d1f64ea2f7c78cd6d2f9ce860ee473f0aea9e8ae1909
 boundary_refs: [boundary.lifecycle-enforcement]
 behavior_refs: [behavior.post-change-verification]
 rule_refs: [rule.high-risk-evidence, rule.engineering-tools-own-style]
@@ -13,6 +13,11 @@ finding_refs: []
 audit_refs: []
 related_map_refs: [map.semantic-workflow, map.host-distribution]
 scenarios:
+  multi-repository-workspace:
+    status: mapped
+    source_refs: [hooks/entry.mjs#handleWorkspace, runtime/session-state.mjs#loadWorkspaceSession, runtime/project-state.mjs#updateWorkspaceSessionJson, tests/native-hook-binding.test.mjs#multiRepositoryFixture]
+    behavior_refs: [behavior.post-change-verification]
+    evidence_refs: [evidence.lifecycle-hooks]
   native-plugin-hooks:
     status: mapped
     source_refs:
@@ -69,7 +74,7 @@ scenarios:
 
 # 生命周期门禁
 
-本轮修复覆盖原生工作根与实际目标 Git 根不一致：全部补丁目标必须属于同一 Git 根，跨根准入要求目标仓已有本会话观察与预检。成功准入根绑定只保存在既有会话运行态，Stop/PreCompact 按根、HEAD、会话及 taskId 重验；routingOnly 不作为起始快照。符号链接、多根补丁和无 Git 工作根跨根写入拒绝。共享入口以规范 PLUGIN_ROOT 识别 Codex，兼容 Claude 别名；fork 也建立起始观察。原生现场恢复仍由原 writer 验收。
+非 Git 父目录可作为多仓库工作区，SessionStart 仅建立路由身份；安装前旧会话可由真实 pre-edit 首次建立当下路由，首个请求必须拒绝落盘；真实 pre-edit 首次接入建立子仓观察，观察时间不冒充父会话启动时间。子仓独立预检、差异裁决和准入，Stop/PreCompact 逐仓验证并汇总失败。workspace 路由不是仓库快照或授权；损坏或缺失路由不能静默退回单仓通过。跨仓单次补丁和符号链接歧义继续拒绝。
 
 ## 能力范围
 

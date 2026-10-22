@@ -4,6 +4,7 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   utimesSync,
@@ -20,6 +21,7 @@ import {
   updateProjectJson,
   writeProjectJson,
   writeVisibleStatus,
+  updateWorkspaceSessionJson,
 } from "../runtime/project-state.mjs";
 
 function git(cwd, ...args) {
@@ -27,6 +29,28 @@ function git(cwd, ...args) {
   assert.equal(result.status, 0, result.stderr);
   return result.stdout.trim();
 }
+
+test("非Git工作区仅允许专用路由写入，损坏记录不覆盖且仓库检查不放宽", (t) => {
+  const directory = mkdtempSync(resolve(tmpdir(), "echo-workspace-state-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const root = realpathSync(directory);
+  const envelope = { scope: "workspace", repositoryRoot: root, records: [] };
+  updateWorkspaceSessionJson(root, () => envelope);
+  assert.deepEqual(readProjectJson(root, "session-snapshot.json"), envelope);
+  assert.throws(() => writeProjectJson(root, "preflight.json", {}));
+  assert.throws(() =>
+    updateWorkspaceSessionJson(root, () => ({ scope: "task" })),
+  );
+  const path = projectStatePath(root, "session-snapshot.json");
+  writeFileSync(path, "{broken");
+  assert.throws(() => updateWorkspaceSessionJson(root, () => envelope), /损坏/);
+  assert.equal(readFileSync(path, "utf8"), "{broken");
+  git(root, "init", "-q");
+  assert.throws(
+    () => updateWorkspaceSessionJson(root, () => envelope),
+    /非 Git/,
+  );
+});
 
 test("项目状态统一写入 .echo-semantic 并自动从 Git 状态排除", () => {
   const repository = mkdtempSync(

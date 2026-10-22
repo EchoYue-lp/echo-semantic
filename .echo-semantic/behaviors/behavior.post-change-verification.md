@@ -8,8 +8,11 @@ risk: high
 primary_focus: failure_concurrency
 focus: [contract_evidence, time_lifecycle]
 boundary: boundary.lifecycle-enforcement
-observed_at: source:323d9d10e27ceb3a901d3b923bb58982aa6efcc4cbf919bfab17ad0abbd0ec18
+observed_at: source:f35ccedfafd943243f47d1f64ea2f7c78cd6d2f9ce860ee473f0aea9e8ae1909
 code_refs:
+  - hooks/entry.mjs#runBoundRepositories
+  - hooks/entry.mjs#handleWorkspace
+  - runtime/session-state.mjs#loadWorkspaceSession
   - hooks/entry.mjs#checkpointBinding
   - tests/native-hook-binding.test.mjs#checkpointFixture
   - skills/semantic-contract/scripts/verify_semantic.py#validate_task
@@ -39,7 +42,7 @@ finding_refs: []
 
 # 变更后验证行为
 
-父工作根事件通过本会话成功准入的 repositoryBindings 路由到实际编辑仓库，Stop 与 PreCompact 重新检查根、HEAD、会话快照及任务身份后复用原结算。没有父起始观察时 routingOnly 仅作路由，不能生成父仓通过结论或消费其预检；多仓结果合成一份宿主输出，任何失败仍阻断。新 source=fork 建立观察，恢复不补造旧依据。
+父工作根事件通过本会话成功准入的 repositoryBindings 路由到实际编辑仓库，Stop 与 PreCompact 重新检查根、HEAD、会话快照及任务身份后复用原结算。没有父起始观察时 routingOnly 仅作路由，不能生成父仓通过结论或消费其预检；多仓结果合成一份宿主输出，任何失败仍阻断。新 source=fork 建立观察，恢复不补造旧依据。非 Git 父目录只拥有路由，按工作区、宿主与原生会话隔离参与集合；只沿 cwd 父链恢复，不扫描其它项目。部分失败保留失败任务和原路由，已通过仓库可重验收据后参加重试；路由并发变化或执行预算耗尽不能宣称全体通过。
 
 ## 重要承诺
 

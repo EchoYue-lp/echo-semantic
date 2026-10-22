@@ -7,7 +7,7 @@ expectation: inferred
 risk: high
 primary_focus: state_authority
 focus: [contract_evidence]
-observed_at: source:323d9d10e27ceb3a901d3b923bb58982aa6efcc4cbf919bfab17ad0abbd0ec18
+observed_at: 7536db0b896eef31873d0e4c998961db03516df3
 behavior_refs:
   [behavior.preflight-before-write, behavior.multi-host-installation]
 code_refs:

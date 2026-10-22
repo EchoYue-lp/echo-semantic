@@ -341,7 +341,8 @@ try {
             ? snapshotDisposition(repository, snapshot, observation)
             : {
                 state: "unknown",
-                message: "没有可信会话起始快照，不得据此授权写入",
+                message:
+                  "没有可信会话起始快照，不得据此授权写入。多仓库父目录会话首次接入时，应由真实写前 Hook 申请接入；该首次请求只建立当前观察并拒绝落盘，再重新 inspect、处理必要差异裁决和预检。refresh 不能补造快照；普通单仓或已有状态丢失时必须恢复真实会话观察。非 Git 父目录本身不是切换到单仓会话的理由。",
               },
           priorVerification: {
             present: Boolean(receipt),

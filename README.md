@@ -27,13 +27,13 @@ cd echo-semantic
 node bin/install.mjs install all
 ```
 
-安装后新建 Codex 或 Claude Code 会话；Cursor 重新加载窗口。然后在目标 Git 项目中要求 Agent：
+安装后新建 Codex 或 Claude Code 会话；Cursor 重新加载窗口。在目标仓库或包含多个 Git 子项目的共同父目录中打开具体任务，例如：
 
 ```text
-请使用 semantic-discover 建立当前仓库的语义基线；完成后运行严格快照验证。
+请修复 <具体问题>。修改前使用 semantic-preflight 查找已有实现、记录复用决定与允许路径，完成后执行任务范围验证。
 ```
 
-完整步骤见 [快速开始](docs/getting-started.md)。
+日常任务无需先建完整语义基线；全项目建库由用户显式选择。目录选择、旧会话首次接入和完整步骤见 [快速开始](docs/getting-started.md)。
 
 ## 为什么不是流式提示
 
@@ -122,9 +122,19 @@ flowchart TD
 | 压缩恢复线索   | `.echo-semantic/continuation.json`        | 绑定任务、分支和证据摘要，最长 7 天                             |
 | 实现质量       | Formatter、Lint、类型与测试               | 代码质量权威，语义 Skill 不替代                                 |
 
-同一个 `.echo-semantic/` 保存长期语义材料、当前运行态和本地产物。`status.md`、`status.json`、`preflight.json`、`route.json`、`continuation.json`、`session-snapshot.json`、`stop-dedupe.json` 这 7 个运行态文件及 `local/` 写入 `.git/info/exclude`，不提交。状态损坏或失效只会要求重新预检、重新路由或丢弃恢复提示。
+同一个 `.echo-semantic/` 保存长期语义材料、当前运行态和本地产物。Git 仓库中的 `status.md`、`status.json`、`preflight.json`、`route.json`、`continuation.json`、`session-snapshot.json`、`stop-dedupe.json` 这 7 个运行态文件及 `local/` 写入 `.git/info/exclude`，不提交；非 Git 父目录只用专用写入保存工作区路由，不依赖 Git 排除文件。派生路由可重新计算；原始会话观察、已有归属和未结算任务缺失时必须恢复可信依据，不能靠删除状态或 `refresh` 补造起始快照。
 
 日志、完整运行结果、临时脚本、候选补丁、源码副本和中间清单统一保存在 `.echo-semantic/local/<task-id>/`；CI 沿用其 Artifact。长期 Evidence 保留必要结论、命令、源码身份、限制与原件引用，不要求整套原件进入 Git。有效反例整理为正式测试，必要精简 fixture 可以提交。插件不自动清理本地产物。见[产物命令](docs/command-reference.md#本地产物与提交检查)。
+
+## 多仓库工作区
+
+在多个独立 Git 子项目的共同父目录打开一个会话即可，父目录无需初始化 Git。工作区只保存路由，各子仓库分别拥有预检、差异裁决、继续包和验证收据；按实际目标接入，不扫描未参与项目。
+
+新会话由 SessionStart 建立路由。安装前已打开、从未接入的父目录会话也可由真实写前 Hook 建立当下观察：**首次申请会拒绝落盘**，随后重新 inspect、完成必要的已有差异处置及本仓预检，再重试原修改。该观察不是安装前的历史快照；`refresh` 不能补造它。已有路由损坏、丢失或过期，或子仓已有本会话原观察及待结算任务时，保留原件并恢复，不能当作首次接入覆盖。
+
+同一任务可依次修改多个仓库，单次补丁只覆盖一个 Git 根。Stop / PreCompact 按本会话参与集合逐仓处理，任一失败不能被其它仓库通过掩盖。安装可见和文件一致不表示原会话已经执行新 Hook。
+
+操作顺序见[快速开始](docs/getting-started.md#选择工作目录与首次接入)、[接入与恢复命令](docs/command-reference.md#多仓库工作区的预检与恢复)；遇到 unknown 见[故障排查](docs/troubleshooting.md#没有可信会话起始快照或-unknown)。
 
 ## 能力
 
@@ -148,7 +158,7 @@ flowchart TD
 
 | 宿主        | Skill    | Agent     | 编辑前检查     | PreCompact | Stop     | 安装方式        |
 | ----------- | -------- | --------- | -------------- | ---------- | -------- | --------------- |
-| Codex       | manifest | TOML 投影 | 当前未稳定覆盖 | 降级支持   | 支持     | CLI + 原生 Hook |
+| Codex       | manifest | TOML 投影 | `PreToolUse`（须验收实际覆盖） | 降级支持   | 支持     | CLI + 原生 Hook |
 | Cursor      | manifest | 原生目录  | `preToolUse`   | 降级支持   | followup | 本地实目录镜像  |
 | Claude Code | manifest | 原生插件  | `PreToolUse`   | 支持       | 支持     | Marketplace CLI |
 
