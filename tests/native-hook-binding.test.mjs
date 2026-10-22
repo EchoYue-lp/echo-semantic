@@ -1232,22 +1232,26 @@ test("父根起始观察不能授权消费另一个任务的预检和继续包",
   }
 });
 
-function checkpointFixture(t) {
+function checkpointFixture(t, { cleanStart = false } = {}) {
   const f = fixture(t);
-  writeFileSync(resolve(f.child, "target.txt"), "authorized initial dirty\n");
+  if (!cleanStart)
+    writeFileSync(resolve(f.child, "target.txt"), "authorized initial dirty\n");
   f.start();
   const initial = loadSessionSnapshot(f.child, f.session);
-  decideSessionChanges(
-    f.child,
-    f.session,
-    initial.initialChanges.fingerprint,
-    "adopt",
-    ["target.txt"],
-    "夹具明确接管本任务路径",
-  );
+  if (!cleanStart)
+    decideSessionChanges(
+      f.child,
+      f.session,
+      initial.initialChanges.fingerprint,
+      "adopt",
+      ["target.txt"],
+      "夹具明确接管本任务路径",
+    );
   f.preflight(f.child);
   const admitted = f.invoke(f.workspace, "pre-edit", patch("child/target.txt"));
   assert.equal(admitted.status, 0, admitted.stderr);
+  if (cleanStart)
+    writeFileSync(resolve(f.child, "target.txt"), "authorized task edit\n");
   const oldHead = git(f.child, "rev-parse", "HEAD");
   git(f.child, "add", "target.txt");
   git(
@@ -1291,6 +1295,27 @@ function checkpointFixture(t) {
     assert.equal(result.status, 0, result.stderr);
   };
   return { ...f, oldHead, newHead, refresh, accept };
+}
+
+for (const event of ["stop", "pre-compact"]) {
+  test(`干净起始会话正常提交后可经官方refresh和处置续接：${event}`, (t) => {
+    const f = checkpointFixture(t, { cleanStart: true });
+    const before = loadSessionSnapshot(f.child, f.session);
+    assert.equal(before.initialChanges, null);
+    const denied = f.invoke(f.workspace, event);
+    assert.equal(denied.status, 2, denied.stderr);
+    f.accept();
+    f.preflight(f.child);
+    const refreshed = loadSessionSnapshot(f.child, f.session);
+    assert.equal(refreshed.headRevision, before.headRevision);
+    assert.equal(refreshed.worktreeDigest, before.worktreeDigest);
+    assert.equal(refreshed.recordedAt, before.recordedAt);
+    assert.equal(refreshed.initialChanges.headRevision, f.newHead);
+    assert.deepEqual(refreshed.initialChanges.paths, []);
+    const result = f.invoke(f.workspace, event);
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(!JSON.parse(result.stdout).decision);
+  });
 }
 
 test("正常commit后官方同session处置与预检续接Stop，无需额外编辑", (t) => {

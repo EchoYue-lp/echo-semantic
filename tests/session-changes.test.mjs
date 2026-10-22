@@ -179,6 +179,60 @@ test("旧观察、错误会话、未指定接管范围或空答复不能记录�
   );
 });
 
+for (const scenario of [
+  "未提交",
+  "提交后又有差异",
+  "无共同历史",
+  "原提交丢失",
+]) {
+  test(`干净会话 checkpoint 刷新失败时保留原观察：${scenario}`, (t) => {
+    const { root } = fixture();
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    git(root, "add", ".");
+    git(root, "-c", "commit.gpgsign=false", "commit", "-qm", "clean fixture");
+    const original = observeWorktree(root);
+    writeSessionRecord(
+      root,
+      "session-snapshot.json",
+      {
+        sessionId: "clean",
+        recordedAt: new Date().toISOString(),
+        dispositionVersion: 1,
+        headRevision:
+          scenario === "原提交丢失" ? "f".repeat(40) : original.headRevision,
+        worktreeDigest: original.worktreeFingerprint,
+        initialChanges: null,
+      },
+      SESSION_SNAPSHOT_LIFETIME_MS,
+    );
+    if (scenario !== "未提交") {
+      if (scenario === "无共同历史")
+        git(root, "checkout", "--orphan", "unrelated");
+      writeFileSync(resolve(root, "tracked.txt"), "checkpoint\n");
+      git(root, "add", ".");
+      git(root, "-c", "commit.gpgsign=false", "commit", "-qm", "checkpoint");
+    }
+    if (scenario === "提交后又有差异")
+      writeFileSync(resolve(root, "tracked.txt"), "new unverified work\n");
+    const before = readFileSync(
+      resolve(root, ".echo-semantic/session-snapshot.json"),
+      "utf8",
+    );
+    assert.throws(() => refreshSessionChanges(root, "clean"), /checkpoint/);
+    assert.equal(
+      readFileSync(
+        resolve(root, ".echo-semantic/session-snapshot.json"),
+        "utf8",
+      ),
+      before,
+    );
+    assert.throws(
+      () => refreshSessionChanges(root, "unknown"),
+      /没有首次差异盘点/,
+    );
+  });
+}
+
 test("裁决 CLI 只写运行态，提供可用的 inspect 和显式 decide", () => {
   const { root } = fixture();
   const script = resolve(import.meta.dirname, "../scripts/session-changes.mjs");

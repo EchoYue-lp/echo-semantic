@@ -2,7 +2,7 @@
 schema_version: 1
 id: evidence.lifecycle-hooks
 kind: evidence
-observed_at: source:f35ccedfafd943243f47d1f64ea2f7c78cd6d2f9ce860ee473f0aea9e8ae1909
+observed_at: source:b04e31debc80dcbb65d993c8d17b7aedd4aa5d6abf5033cb977cef682f25f91c
 source_refs:
   - hooks/entry.mjs#handleWorkspace
   - hooks/entry.mjs#runBoundRepositories
@@ -178,3 +178,7 @@ pending 拒写反馈给出实际仓库、原生会话及官方 inspect 参数和
 ## 多仓库使用文档同步
 
 同步 README、CHANGELOG、快速开始、FAQ、故障排查、命令参考、宿主矩阵、多宿主适配、核心概念、发布验收及主架构生命周期图。按既有实现区分 SessionStart 与旧父会话真实 pre-edit 首次接入，首次请求只观察并拒写；其它会话快照不授权本会话，已有本会话状态或待结算任务不得覆盖。文档显式区分安装可见、文件一致、入口夹具与原生事件验收，不把恢复问题转为必须切换单仓根。此次只改文档与必要源码身份元数据，未改运行时或测试逻辑；原件定位 .echo-semantic/local/multi-repository-docs-sync/。
+
+## 干净会话提交后的 checkpoint 恢复
+
+真实本仓提交推进后 Stop 报“仓库绑定已失效”，原会话 initialChanges 为 null；现有 refresh 仅支持初始 dirty 会话，导致无法走正式处置与当前预检链。隔离真实 Git 夹具先复现 Stop/PreCompact 两项失败，修复仅扩展既有 refresh：可信干净原观察、已推进 HEAD、共同历史与零当前差异全部满足才生成待裁决 checkpoint；原始观察字段不变。未推进、有新差异、无共同历史、不可恢复提交及未知会话继续拒绝，失败保留原记录。定向、完整工程与语义校验原件保存在忽略的 .echo-semantic/local/clean-checkpoint-stop/；夹具和安装一致性不替代后续真实宿主 Stop 验收。

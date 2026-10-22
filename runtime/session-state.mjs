@@ -5,6 +5,7 @@ import {
   PLUGIN_ID,
 } from "./project-state.mjs";
 import { createHash, randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { observeWorktree } from "./route.mjs";
 
@@ -395,11 +396,38 @@ export function refreshSessionChanges(root, sessionId) {
     sessionId,
     SESSION_SNAPSHOT_LIFETIME_MS,
     (previous) => {
-      if (previous?.dispositionVersion !== 1 || !previous.initialChanges)
+      if (previous?.dispositionVersion !== 1)
         throw new Error("当前会话没有首次差异盘点，不得补造修改前记录");
       const observation = observeWorktree(root);
       if (observation.worktreeFingerprint === null)
         throw new Error("当前差异观察不可用，只允许只读");
+      if (!previous.initialChanges) {
+        // 干净起始会话的提交后盘点不是起始快照；只允许同历史、零差异的显式 checkpoint。
+        if (
+          previous.initialChanges !== null ||
+          !/^[a-f0-9]{40}$/.test(previous.headRevision ?? "") ||
+          !/^[a-f0-9]{64}$/.test(previous.worktreeDigest ?? "") ||
+          !observation.headRevision ||
+          previous.headRevision === observation.headRevision ||
+          observation.changes.length !== 0
+        )
+          throw new Error(
+            "干净会话只能刷新同一历史中已提交且零差异的 checkpoint",
+          );
+        const common = spawnSync(
+          "git",
+          [
+            "-C",
+            root,
+            "merge-base",
+            previous.headRevision,
+            observation.headRevision,
+          ],
+          { encoding: "utf8", timeout: 10_000 },
+        );
+        if (common.status !== 0 || !/^[a-f0-9]{40}$/.test(common.stdout.trim()))
+          throw new Error("checkpoint 缺少可恢复的共同 Git 历史");
+      }
       return {
         ...previous,
         initialChanges: {

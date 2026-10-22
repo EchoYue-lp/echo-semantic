@@ -309,6 +309,8 @@ npm run verify
 
 ## 本地状态位置
 
+正常提交推进 HEAD 后的绑定恢复仍使用现有 `session-changes.mjs inspect/refresh/decide`，随后记录原任务在当前 HEAD 的预检。干净起始会话仅在可信原观察、可恢复的共同 Git 历史和当前零差异条件下允许 `refresh` 生成 checkpoint 待裁决盘点；不会改写原始会话快照，也不自动授权或生成完成收据。其它情况见[故障排查](troubleshooting.md#stop-一直被阻断)。
+
 ```text
 <project-root>/.echo-semantic/preflight.json
 <project-root>/.echo-semantic/route.json

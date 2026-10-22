@@ -8,7 +8,7 @@ risk: high
 primary_focus: failure_concurrency
 focus: [contract_evidence, time_lifecycle]
 boundary: boundary.lifecycle-enforcement
-observed_at: source:f35ccedfafd943243f47d1f64ea2f7c78cd6d2f9ce860ee473f0aea9e8ae1909
+observed_at: source:b04e31debc80dcbb65d993c8d17b7aedd4aa5d6abf5033cb977cef682f25f91c
 code_refs:
   - hooks/entry.mjs#runBoundRepositories
   - hooks/entry.mjs#handleWorkspace
@@ -31,6 +31,7 @@ code_refs:
   - runtime/route.mjs#computeRoute
   - runtime/route.mjs#observeWorktree
   - runtime/session-state.mjs#decideSessionChanges
+  - runtime/session-state.mjs#refreshSessionChanges
   - runtime/continuation.mjs#writeContinuation
   - hooks/entry.mjs#checkpoint
   - runtime/project-state.mjs#prepareTaskArtifactDirectory
@@ -53,6 +54,8 @@ finding_refs: []
 ## 当前行为
 
 已准入任务正常提交后，Stop/PreCompact 在原绑定根、同session和同task内核对共同Git谱系、当前有效预检base以及当前HEAD的已确认处置；全部根核验后通过既有API续接路由。HEAD保护、受保护差异及任务验证继续生效，原始快照不改，绑定刷新不充当完成收据。不要求采用方为了刷新绑定做额外源码编辑。
+
+干净起始会话的显式 refresh 可在可信原观察、HEAD 推进、原提交可恢复且有共同历史、当前零差异时建立 checkpoint 待裁决盘点。原始 HEAD、worktreeDigest 与 recordedAt 不变；仍需同会话明确处置、原任务当前预检和真实验证。失败不更新记录，不把缺失观察或新差异解释为已批准提交。
 
 
 任务引用闭包继承对象与场景的源码 revision；历史 Git 引用在对应 tree 校验，并按 revision/path/blob 摘要进入签名。当前文件与历史 blob 分开绑定，历史已删除路径不进入当前 stat 观察。同 path 不同 revision 不互相覆盖，历史引用不授予 deletePaths。repository 收据在既有任务依据字段中分离 files/references，兼容纯文件映射；task 重用通过既有校验器的只读引用重验入口核对 referenceDigests，不把引用检查当作任务完成验证。无效 revision、锚点、当前或历史内容漂移继续拒绝。 缺少历史身份字段的旧 task 收据不能直接重用；新空映射与旧 repository 纯文件映射分别保留既有正常路径。

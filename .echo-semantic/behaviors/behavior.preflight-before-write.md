@@ -8,7 +8,7 @@ risk: high
 primary_focus: state_authority
 focus: [trigger_input, contract_evidence]
 boundary: boundary.semantic-workflow
-observed_at: source:f35ccedfafd943243f47d1f64ea2f7c78cd6d2f9ce860ee473f0aea9e8ae1909
+observed_at: f8988b1bbd455d9835eb84dd4337cd96e273d3de
 code_refs:
   - hooks/entry.mjs#handleWorkspace
   - runtime/project-state.mjs#updateWorkspaceSessionJson
